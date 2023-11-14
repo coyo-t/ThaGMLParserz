@@ -59,12 +59,12 @@ def read_multiline_comment (f: StringReader):
 		f.skip()
 
 
-def read_hex_number (f: StringReader) -> Token:
+def read_hex_number (f: StringReader) -> TokenType:
 	name = f.take_while(mth.is_allowed_number_hex)
 	return NumberLiteralToken(int(name.replace('_', ''), 16))
 
 
-def read_css_colour (f: StringReader) -> Token:
+def read_css_colour (f: StringReader) -> TokenType:
 	name = f.take_while(mth.is_allowed_number_hex).replace('_', '')
 	if (l:=len(name)) > 6:
 		raise ParseNumberError(f'Too many digits for hex colour code #{name}!')
@@ -74,7 +74,7 @@ def read_css_colour (f: StringReader) -> Token:
 	return NumberLiteralToken(((value>>16)&0xFF)|(value&0x00FF00)|((value&0xFF)<<16))
 
 
-def handle_macro (f: StringReader) -> Token:
+def handle_macro (f: StringReader) -> TokenType:
 	# So, the #macro x:y syntax is actually config:name,
 	# not name:config. Why? i dont know! this is stupid! but okay
 
@@ -120,7 +120,7 @@ def handle_macro (f: StringReader) -> Token:
 	return macrotoken
 
 
-def handle_number (f: StringReader) -> Token:
+def handle_number (f: StringReader) -> TokenType:
 	start = f.tell()
 	ch = f.read()
 
@@ -244,7 +244,7 @@ def tokenize (src: str, handle_whack_as_newline=False) -> Tokens:
 	f = StringReader(src)
 	tokens = Tokens()
 
-	def add (tk: Token|TK):
+	def add (tk: TokenType | TK):
 		nonlocal tokens
 		tokens += tk
 
@@ -257,7 +257,7 @@ def tokenize (src: str, handle_whack_as_newline=False) -> Tokens:
 			#TODO:
 			#	these two should RLE encode how many newlines in a row there were
 			#	mostly because the *number* of newlines doesnt rlly matter ._.
-			case '\r' | '\n' if f.vore_pev_newline():
+			case ('\r' | '\n') if f.vore_pev_newline():
 				add(TK.NEWLINE)
 			case '\\':
 				if not handle_whack_as_newline:

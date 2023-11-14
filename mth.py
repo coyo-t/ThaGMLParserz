@@ -67,38 +67,3 @@ def digest_string (s: str):
 					raise DigestStringError(f'Unknown string escape sequence \\{ch}!')
 		outs += ch
 	return outs
-	# _f = StringReader(s)
-	# def read_esc_num (length: int, base: int, typeof: str):
-	# 	try:
-	# 		t = _f.tell()
-	# 		chars = _f.text[t:t+length]
-	# 		if len(chars) < length:
-	# 			raise DigestStringError(f'Not enough chars for {typeof} esc seq: "{chars}"')
-	# 		v = int(chars, base)
-	# 		_f.seek(t + length)
-	# 		return chr(v)
-	# 	except Exception as e:
-	# 		raise DigestStringError(f'problem digesting string {typeof} escape seq: {e}')
-	#
-	# outs = ''
-	# while _f.can_read():
-	# 	ch = _f.read()
-	# 	if ch == '\\':
-	# 		if _f.vore('\\'): pass
-	# 		elif _f.vore('"'): ch = '"'
-	# 		elif _f.vore('r'): ch = '\x0D'
-	# 		elif _f.vore('n'): ch = '\n'
-	# 		elif _f.vore('b'): ch = '\x08'
-	# 		elif _f.vore('f'): ch = '\x0c'
-	# 		elif _f.vore('t'): ch = '\t'
-	# 		elif _f.vore('v'): ch = '\x0b'
-	# 		elif _f.vore('a'): ch = '\x07'
-	# 		elif _f.vore('u'): ch = read_esc_num(4, 16, 'unicode')
-	# 		elif _f.vore('x'): ch = read_esc_num(2, 16, 'hex')
-	# 		elif '0' <= _f.peek() <= '7': ch = read_esc_num(1, 8, 'octal')
-	# 		elif _f.peek() == '':
-	# 			raise DigestStringError(f'Hit end of string before finding escape sequence type!')
-	# 		else:
-	# 			raise DigestStringError(f'Unknown string escape sequence \\{ch}!')
-	# 	outs += ch
-	# return outs

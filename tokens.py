@@ -16,13 +16,13 @@ class InplaceKind(Enum):
 
 	def __str__ (self): return f'{self.value}='
 
-class Token:
+class TokenType:
 	pass
 
-class EOF(Token):
+class EOF(TokenType):
 	def __str__ (self): return '--< EOF >--'
 
-class Literal(Token):
+class Literal(TokenType):
 	pass
 
 @dataclass
@@ -44,7 +44,7 @@ class Accessor:
 		return f'< {self.kind} >'
 
 @dataclass
-class Scope(Token):
+class Scope(TokenType):
 	class Kind(Enum):
 		SELF   = ('self',  -1)
 		OTHER  = ('other', -2)
@@ -67,7 +67,7 @@ class Scope(Token):
 
 
 def simple_token (symbol: str):
-	class SimpleToken(Token):
+	class SimpleToken(TokenType):
 		def __str__ (self): return f'< {symbol} >'
 	return SimpleToken()
 
@@ -82,9 +82,9 @@ def self_literal (kind: Scope.Kind):
 def accessor_token (kind: Accessor.Kind):
 	return Accessor(kind)
 
-class Tokens(list[Token]):
+class Tokens(list[TokenType]):
 	def __iadd__(self, other):
-		if isinstance(other, (Token, TK)):
+		if isinstance(other, (TokenType, TK)):
 			self.append(other)
 			return self
 		return super().__iadd__(other)
@@ -189,7 +189,7 @@ class TK(Enum):
 		return isinstance(self.value, Accessor)
 
 
-class CommentToken(Token):
+class CommentToken(TokenType):
 	"""
 	Comments are kept as tokens despite not being
 	syntactically meaningful. They are however used
@@ -204,54 +204,54 @@ class CommentToken(Token):
 		return f'< // {repr(self.contents)} >'
 
 @dataclass
-class LBraceToken(Token): # {, begin
+class LBraceToken(TokenType): # {, begin
 	was_word: bool = False
 	def __str__ (self): return f'< {'begin' if self.was_word else '{'} >'
 @dataclass
-class RBraceToken(Token): # }, end
+class RBraceToken(TokenType): # }, end
 	was_word: bool = False
 	def __str__ (self): return f'< {'end' if self.was_word else '}'} >'
 @dataclass
-class AndToken(Token):
+class AndToken(TokenType):
 	was_word: bool = False
 	def __str__ (self): return f'< {'and' if self.was_word else '&&'} >'
 @dataclass
-class OrToken(Token):
+class OrToken(TokenType):
 	was_word: bool = False
 	def __str__ (self): return f'< {'or' if self.was_word else '||'} >'
 @dataclass
-class XorToken(Token):
+class XorToken(TokenType):
 	was_word: bool = False
 	def __str__ (self): return f'< {'xor' if self.was_word else '^^'} >'
 
 @dataclass
-class InplaceOpToken(Token):
+class InplaceOpToken(TokenType):
 	kind: InplaceKind
 	def __str__ (self): return f'< {self.kind.value} >'
 @dataclass
-class LogicNotToken(Token):
+class LogicNotToken(TokenType):
 	was_word: bool = False
 	def __str__ (self): return f'< {'not' if self.was_word else '!'} >'
 @dataclass
-class ScriptArgumentToken(Token):
+class ScriptArgumentToken(TokenType):
 	index: int
 	def __str__ (self): return f'< argument{'' if self.index < 0 else self.index} >'
 @dataclass
-class IdentifierToken(Token):
+class IdentifierToken(TokenType):
 	name: str
 	def __str__ (self): return f'< Ident: {self.name} >'
 @dataclass
-class RegionToken(Token):
+class RegionToken(TokenType):
 	is_end: bool
 	contents: str = field(default='')
 	def __str__ (self):
 		name = f'#{'end' if self.is_end else ''}region'
 		return f'< {name}{' '+repr(self.contents) if len(self.contents) > 0 else ''} >'
 @dataclass
-class MacroToken(Token):
+class MacroToken(TokenType):
 	name: str
 	configuration: str = field(default=None)
-	body: list[Token] = field(default_factory=list)
+	body: list[TokenType] = field(default_factory=list)
 
 	def __str__ (self):
 		main = f'#macro {self.name}' + (f', cfg:{self.configuration}' if self.has_config else '')
@@ -263,7 +263,7 @@ class MacroToken(Token):
 	def has_config (self):
 		return self.configuration is not None
 @dataclass
-class KeywordToken(Token):
+class KeywordToken(TokenType):
 	keyword: str
 	def __str__ (self): return f'< {self.keyword} >'
 @dataclass

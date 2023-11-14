@@ -29,25 +29,27 @@ def mm ():
 	depth = 0
 	scope_incr = False
 	scope_decr = False
-	for tk in result:
-		if isinstance(tk, TK) and tk.is_special_accessor():
-			scope_incr = True
-		if isinstance(tk, LBraceToken) or tk in (TK.L_BRACKET, TK.L_WHIFFLE):
-			scope_incr = True
-		elif isinstance(tk, RBraceToken) or tk in (TK.R_BRACKET, TK.R_WHIFFLE):
-			scope_decr = True
-		elif isinstance(tk, RegionToken):
-			(scope_decr:=True) if tk.is_end else (scope_incr:=True)
+	for token in result:
+		match token:
+			case TK() if token.is_special_accessor():
+				scope_incr = True
+			case LBraceToken() | TK.L_BRACKET | TK.L_WHIFFLE:
+				scope_incr = True
+			case RBraceToken() | TK.R_BRACKET | TK.R_WHIFFLE:
+				scope_decr = True
+			case RegionToken():
+				(scope_decr:=True) if token.is_end else (scope_incr:=True)
 
 		depth -= scope_decr
 		ident = '\t' * depth
 		depth += scope_incr
 		scope_incr = scope_decr = False
 
-		if isinstance(tk, TK):
-			outs = tk.value
-		else:
-			outs = tk
+		match token:
+			case TK() as tk:
+				outs = tk.value
+			case _:
+				outs = token
 
 		print(f'{ident}{outs}')
 	print('----  END  ----')

@@ -78,6 +78,9 @@ class StringReader:
 			self.skip()
 		return True
 
+	def substr_from (self, begin:int):
+		return self._txt[begin: self.tell()]
+
 	# GOD FUCKING DAMMIT WINDOWS AAAAAAAAAAAAAAAAAAAA
 	def vore_newline (self):
 		"""
@@ -95,5 +98,12 @@ class StringReader:
 			return True
 		return False
 
-	def substr_from (self, begin:int):
-		return self._txt[begin: self.tell()]
+	# no seriously, fuck windows
+	def vore_pev_newline (self):
+		if self.prev() == '\n':
+			return True
+		elif self.prev() == '\r' and self.peek() == '\n':
+			self.skip()
+			return True
+		return False
+
