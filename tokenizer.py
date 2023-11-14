@@ -13,54 +13,23 @@ class ParseError(Exception):
 class ParseNumberError(ParseError):
 	pass
 
+__whwh = (
+	' \t\v\f'
+	'\u0085\u00A0\u1680\u180E\u2000\u2001\u2002\u2003'
+	'\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u200B'
+	'\u200C\u200D\u2028\u2029\u202F\u205F\u2060\u3000'
+	'\uFEFF'
+)
 
-class DigestStringError(ParseError):
-	pass
-
-
-KINDA_WHITESPACE = lambda ch: ch in ' \t\v\f'
+KINDA_WHITESPACE = lambda ch: ch in __whwh
 """
 dont use skip whitespace bc we need newlines (including \\r, since
 windows loves to do \\r\\n instead of just \\n -_-
+
+otherwise taken from:
+
+https://manual.yoyogames.com/#t=Additional_Information%2FWhitespace_Characters.htm
 """
-
-def digest_string (s: str):
-	# gurgle -v-"
-	f = StringReader(s)
-	def read_esc_num (length: int, base: int, typeof: str):
-		try:
-			t = f.tell()
-			chars = f.text[t:t+length]
-			if len(chars) < length:
-				raise DigestStringError(f'Not enough chars for {typeof} esc seq: "{chars}"')
-			v = int(chars, base)
-			f.seek(t + length)
-			return chr(v)
-		except Exception as e:
-			raise DigestStringError(f'problem digesting string {typeof} escape seq: {e}')
-
-	outs = ''
-	while f.can_read():
-		ch = f.read()
-		if ch == '\\':
-			if f.vore('\\'): pass
-			elif f.vore('"'): ch = '"'
-			elif f.vore('r'): ch = '\x0D'
-			elif f.vore('n'): ch = '\n'
-			elif f.vore('b'): ch = '\x08'
-			elif f.vore('f'): ch = '\x0c'
-			elif f.vore('t'): ch = '\t'
-			elif f.vore('v'): ch = '\x0b'
-			elif f.vore('a'): ch = '\x07'
-			elif f.vore('u'): ch = read_esc_num(4, 16, 'unicode')
-			elif f.vore('x'): ch = read_esc_num(2, 16, 'hex')
-			elif '0' <= f.peek() <= '7': ch = read_esc_num(1, 8, 'octal')
-			elif f.peek() == '':
-				raise DigestStringError(f'Hit end of string before finding escape sequence type!')
-			else:
-				raise DigestStringError(f'Unknown string escape sequence \\{ch}!')
-		outs += ch
-	return outs
 
 
 def read_multiline_comment (f: StringReader):
@@ -210,7 +179,7 @@ def handle_string (f: StringReader, is_multiline: bool):
 				if f.prev() == '\\':
 					f.skip()
 					continue
-				tk = StringLiteralToken(digest_string(f.substr_from(start)))
+				tk = StringLiteralToken(mth.digest_string(f.substr_from(start)))
 				f.skip() # trailing "
 				return tk
 			f.skip()
@@ -252,7 +221,7 @@ def handle_string_template (f: StringReader):
 			if len(bracket_slices) == 0:
 				# string contains no expression blocks, treat it
 				# as a regular str literal
-				tk = StringLiteralToken(digest_string(f.substr_from(start)))
+				tk = StringLiteralToken(mth.digest_string(f.substr_from(start)))
 				f.skip() # trailing "
 				return tk
 			# operate on the string backwards, so that
@@ -265,7 +234,7 @@ def handle_string_template (f: StringReader):
 				tk.bodies.insert(0, tokenize(''.join(text[body])))
 				text[body] = str(i)
 				i -= 1
-			tk.string = digest_string(''.join(text))
+			tk.string = mth.digest_string(''.join(text))
 			return tk
 		f.skip()
 	raise ParseError('Unclosed string')
@@ -275,146 +244,143 @@ def tokenize (src: str, handle_whack_as_newline=False) -> Tokens:
 	f = StringReader(src)
 	tokens = Tokens()
 
+	def add (tk: Token|TK):
+		nonlocal tokens
+		tokens += tk
+
 	while f.can_read():
 		f.take_while(KINDA_WHITESPACE)
 		ch = f.read()
-
 		match ch:
 			case '':
 				break
 			#TODO:
 			#	these two should RLE encode how many newlines in a row there were
 			#	mostly because the *number* of newlines doesnt rlly matter ._.
-			case '\r':
-				if f.vore('\n'):
-					tokens += NewlineToken()
-				else:
-					continue
-			case '\n':
-				tokens += NewlineToken()
+			case '\r' | '\n' if f.vore_pev_newline():
+				add(TK.NEWLINE)
 			case '\\':
 				if not handle_whack_as_newline:
 					raise ParseError('Unexpected backslash in stream!')
 				if f.vore_newline():
-					tokens += NewlineToken()
+					add(TK.NEWLINE)
 				else:
 					raise ParseError('Expected newline after backslash continuator!')
 			case '/':
 				if f.vore('/'):
-					tokens += CommentToken(f.take_while(lambda c: c != '\n'), False)
+					add(CommentToken(f.take_while(lambda c: c != '\n'), False))
 					f.skip() # ending newline
 				elif f.vore('*'):
 					start = f.tell()
 					read_multiline_comment(f)
-					tokens += CommentToken(f.text[start : f.tell()-2], True)
+					add(CommentToken(f.text[start : f.tell()-2], True))
 				elif f.vore('='):
-					tokens += InplaceOpToken(InplaceKind.DIV)
+					add(InplaceOpToken(InplaceKind.DIV))
 				else:
-					tokens += SlashToken()
+					add(TK.SLASH)
 			case '.':
 				# might be reading a decimal number that omits the leading 0
 				if mth.is_number(f.peek()):
 					f.rewind()
-					tokens += handle_number(f)
+					add(handle_number(f))
 				else:
-					tokens += DotToken()
+					add(TK.DOT)
 			case '"':
-				tokens += handle_string(f, False)
+				add(handle_string(f, False))
 			case '@':
 				if f.vore('"'):
-					tokens += handle_string(f, True)
+					add(handle_string(f, True))
 				else:
 					raise ParseError('Unexpected @ in stream!')
 					# tokens += AtToken()
 			case '$':
 				if f.vore('"'):
-					tokens += handle_string_template(f)
-					# raise NotImplementedError('I HAVENT DONE FSTRINGS AAAAAAAAAA!!!!!!!!')
+					add(handle_string_template(f))
 				else:
 					if mth.is_allowed_number_hex(f.peek()):
-						tokens += read_hex_number(f)
+						add(read_hex_number(f))
 					else:
-						raise ParseError('Unexpected midas hotkey in stream!')
+						raise ParseError('Unexpected midas hotkey in $tream!')
 			case '?':
 				if f.vore('?'):
 					if f.vore('='):
-						tokens += InplaceOpToken(InplaceKind.NULL)
+						add(InplaceOpToken(InplaceKind.NULL))
 					else:
-						tokens += NullishToken()
+						add(TK.NULLISH)
 				else:
-					tokens += QuestoToken()
-			case '~': tokens += SquiggleToken()
+					add(TK.QUESTO)
+			case '~': add(TK.BITWISE_NOT)
 			case '!':
 				if f.vore('='):
-					tokens += BangEqualsToken()
+					add(TK.INEQUALITY)
 				else:
-					tokens += LogicNotToken(False)
+					add(LogicNotToken(False))
 			case '=':
 				if f.vore('='):
-					tokens += DoubleEqualsToken()
+					add(TK.EQUALITY)
 				else:
-					tokens += EqualsToken()
-			case '{': tokens += LBraceToken()
-			case '}': tokens += RBraceToken()
-			case '(': tokens += LWhiffleToken()
-			case ')': tokens += RWhiffleToken()
+					add(TK.EQUALS)
+			case '{': add(LBraceToken())
+			case '}': add(RBraceToken())
+			case '(': add(TK.L_WHIFFLE)
+			case ')': add(TK.R_WHIFFLE)
 			case '[':
-				if   f.vore('|'): tokens += SpecialAccessorToken(AccessorKind.DS_LIST)
-				elif f.vore('?'): tokens += SpecialAccessorToken(AccessorKind.DS_MAP)
-				elif f.vore('#'): tokens += SpecialAccessorToken(AccessorKind.DS_GRID)
-				elif f.vore('@'): tokens += SpecialAccessorToken(AccessorKind.ARRAY)
-				elif f.vore('$'): tokens += SpecialAccessorToken(AccessorKind.STRUCT)
-				else: tokens += LBracketToken()
-			case ']': tokens += RBracketToken()
-			case ',': tokens += CommaToken()
-			case ':': tokens += ColonToken()
-			case ';': tokens += SemiColonToken()
+				if   f.vore('|'): add(TK.ACCESS_DS_LIST)
+				elif f.vore('?'): add(TK.ACCESS_DS_MAP)
+				elif f.vore('#'): add(TK.ACCESS_DS_GRID)
+				elif f.vore('@'): add(TK.ACCESS_ARRAY)
+				elif f.vore('$'): add(TK.ACCESS_STRUCT)
+				else: add(TK.L_BRACKET)
+			case ']': add(TK.R_BRACKET)
+			case ',': add(TK.COMMA)
+			case ':': add(TK.COLON)
+			case ';': add(TK.SEMICOLON)
 			case '+':
-				if   f.vore('='): tokens += InplaceOpToken(InplaceKind.ADD)
-				elif f.vore('+'): tokens += IncrToken()
-				else: tokens += PlusToken()
+				if   f.vore('='): add(InplaceOpToken(InplaceKind.ADD))
+				elif f.vore('+'): add(TK.INCR)
+				else: add(TK.PLUS)
 			case '-':
-				if   f.vore('='): tokens += InplaceOpToken(InplaceKind.SUB)
-				elif f.vore('-'): tokens += DecrToken()
-				else: tokens += MinusToken()
+				if   f.vore('='): add(InplaceOpToken(InplaceKind.SUB))
+				elif f.vore('-'): add(TK.DECR)
+				else: add(TK.MINUS)
 			case '*':
-				if f.vore('='): tokens += InplaceOpToken(InplaceKind.MUL)
-				else:           tokens += StarToken()
+				if f.vore('='): add(InplaceOpToken(InplaceKind.MUL))
+				else:           add(TK.STAR)
 			case '%':
-				if f.vore('='): tokens += InplaceOpToken(InplaceKind.MOD)
-				else:           tokens += PercToken()
+				if f.vore('='): add(InplaceOpToken(InplaceKind.MOD))
+				else:           add(TK.PERCENT)
 			case '&':
-				if   f.vore('&'): tokens += AndToken(False)
-				elif f.vore('='): tokens += InplaceOpToken(InplaceKind.AND)
-				else: tokens += AmpersandToken()
+				if   f.vore('&'): add(AndToken(False))
+				elif f.vore('='): add(InplaceOpToken(InplaceKind.AND))
+				else: add(TK.BITWISE_AND)
 			case '|':
-				if   f.vore('|'): tokens += OrToken(False)
-				elif f.vore('='): tokens += InplaceOpToken(InplaceKind.OR)
-				else: tokens += PipeToken()
+				if   f.vore('|'): add(OrToken(False))
+				elif f.vore('='): add(InplaceOpToken(InplaceKind.OR))
+				else: add(TK.BITWISE_OR)
 			case '^':
-				if   f.vore('^'): tokens += XorToken(False)
-				elif f.vore('='): tokens += InplaceOpToken(InplaceKind.XOR)
-				else: tokens += CarrotToken()
+				if   f.vore('^'): add(XorToken(False))
+				elif f.vore('='): add(InplaceOpToken(InplaceKind.XOR))
+				else: add(TK.BITWISE_XOR)
 			case '<':
 				if f.vore('='):
-					tokens += LequalToken()
+					add(TK.LESS_EQUAL)
 				elif f.vore('<'):
 					if f.vore('='):
-						tokens += InplaceOpToken(InplaceKind.LSH)
+						add(InplaceOpToken(InplaceKind.LSH))
 					else:
-						tokens += LShiftToken()
+						add(TK.L_SHIFT)
 				else:
-					tokens += LessToken()
+					add(TK.LESS_THAN)
 			case '>':
 				if f.vore('='):
-					tokens += GequalToken()
+					add(TK.GREATER_EQUAL)
 				elif f.vore('>'):
 					if f.vore('='):
-						tokens += InplaceOpToken(InplaceKind.RSH)
+						add(InplaceOpToken(InplaceKind.RSH))
 					else:
-						tokens += RShiftToken()
+						add(TK.R_SHIFT)
 				else:
-					tokens += GreaterToken()
+					add(TK.GREATER_THAN)
 			case '#':
 				# this isnt particuarly efficient -_- but whatever
 				#TODO: This method is sort of complicated, im not sure how to
@@ -423,20 +389,20 @@ def tokenize (src: str, handle_whack_as_newline=False) -> Tokens:
 				begin = f.tell() - 1
 				name = f.take_while(mth.is_identifier)
 				if name == 'macro':
-					tokens += handle_macro(f)
+					add(handle_macro(f))
 				elif name == 'region':
 					f.take_while(KINDA_WHITESPACE)
-					tokens += RegionToken(False, f.take_while(lambda c: c != '\n'))
+					add(RegionToken(False, f.take_while(lambda c: c != '\n')))
 					f.skip() # trailing newline
 				elif name == 'endregion':
 					f.take_while(KINDA_WHITESPACE)
-					tokens += RegionToken(True, f.take_while(lambda c: c != '\n'))
+					add(RegionToken(True, f.take_while(lambda c: c != '\n')))
 					f.skip() # trailing newline
 				elif name == '':
 					raise ParseError(f'Unexpected # in stream @{begin}!')
 				elif all(map(mth.is_allowed_number_hex, name)):
 					f.seek(begin + 1)
-					tokens += read_css_colour(f)
+					add(read_css_colour(f))
 				else:
 					raise ParseError(f'Unknown preprocessor directive "#{name}" @ {begin}!')
 			case _:
@@ -445,32 +411,32 @@ def tokenize (src: str, handle_whack_as_newline=False) -> Tokens:
 					name = f.take_while(mth.is_identifier)
 					if name in gml_keywords:
 						if (func:=gml_keywords[name]) is not None:
-							tokens += func(name)
+							add(func(name))
 						else:
-							tokens += KeywordToken(name)
+							add(KeywordToken(name))
 					else:
 						if name.startswith('argument'):
 							idx = name.lstrip('argument')
 							if len(idx) == 0:
-								tokens += ScriptArgumentToken(-1)
+								add(ScriptArgumentToken(-1))
 								continue
 							try:
 								idx = int(idx)
 								if idx in range(0, 16):
-									tokens += ScriptArgumentToken(idx)
+									add(ScriptArgumentToken(idx))
 									continue
 							except ValueError:
 								pass
-						tokens += IdentifierToken(name)
+						add(IdentifierToken(name))
 				elif mth.is_number(ch):
 					f.rewind()
-					tokens += handle_number(f)
+					add(handle_number(f))
 				else:
-					raise ParseError(f'Unexpected character in stream "{ch}"')
+					raise ParseError(f'Unexpected character in stream "{repr(ch)}"')
 	return tokens
 
 
 def main (targ: str|Path):
 	tokens = tokenize(Path(targ).read_text('utf8'))
-	tokens += EOFToken()
+	tokens += EOF()
 	return tokens

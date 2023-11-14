@@ -13,7 +13,7 @@ def script_name (name:str,root=SCRIPTS):
 def mm ():
 	print('---- BEGIN ----')
 	result = tokenizer.main(
-		# script_name('__scr_ai_oldStep')
+		script_name('__scr_ai_oldStep')
 		# script_name('scr_menu_night6')
 		# ASSETS/'draw_rout_cctv.gml'
 		# script_name('scr_lz4', GMS2PROJ/'grimdawnfdumpforcazey/scripts')
@@ -21,29 +21,35 @@ def mm ():
 		# script_name('_debug', FPWGMS2/'FPW_beta_conv/scripts')
 		# FPWGMS2/'__parallel/paramk6/objects/obj_panorama/Draw_0.gml'
 		# script_name('script_listener', GMS2PROJ/'mc adiobussy tesst2/scripts')
-		script_name('player_camera_update', GMS2PROJ/'__old/Popgoes 1 Repainted/scripts')
+		# script_name('player_camera_update', GMS2PROJ/'__old/Popgoes 1 Repainted/scripts')
 		# ASSETS/'multiline_macro_test.gml'
 		# ASSETS/'strings_test.gml'
 	)
+
 	depth = 0
+	scope_incr = False
+	scope_decr = False
 	for tk in result:
-		ident = '\t' * depth
-		if isinstance(tk, (LBraceToken, LBracketToken, LWhiffleToken)):
-			depth += 1
-			print(f'{ident}{tk}')
-			continue
-		elif isinstance(tk, (RBraceToken, RBracketToken, RWhiffleToken)):
-			depth -= 1
-			ident = '\t' * depth
+		if isinstance(tk, TK) and tk.is_special_accessor():
+			scope_incr = True
+		if isinstance(tk, LBraceToken) or tk in (TK.L_BRACKET, TK.L_WHIFFLE):
+			scope_incr = True
+		elif isinstance(tk, RBraceToken) or tk in (TK.R_BRACKET, TK.R_WHIFFLE):
+			scope_decr = True
 		elif isinstance(tk, RegionToken):
-			if tk.is_end:
-				depth -= 1
-				ident = '\t' * depth
-			else:
-				depth += 1
-			print(f'{ident}{tk}')
-			continue
-		print(f'{ident}{tk}')
+			(scope_decr:=True) if tk.is_end else (scope_incr:=True)
+
+		depth -= scope_decr
+		ident = '\t' * depth
+		depth += scope_incr
+		scope_incr = scope_decr = False
+
+		if isinstance(tk, TK):
+			outs = tk.value
+		else:
+			outs = tk
+
+		print(f'{ident}{outs}')
 	print('----  END  ----')
 
 if __name__ == '__main__':

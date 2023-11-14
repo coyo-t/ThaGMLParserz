@@ -7,9 +7,9 @@ gml_keywords = {
 	   'or': lambda _: OrToken(True),
 	  'xor': lambda _: XorToken(True),
 	  'not': lambda _: LogicNotToken(True),
-	  'mod': lambda _: IntModToken(),
-	  'div': lambda _: IntDivToken(),
-	  'new': lambda _: NewObjectToken(),
+	  'mod': lambda _: TK.INT_MOD,
+	  'div': lambda _: TK.INT_DIV,
+	  'new': lambda _: TK.NEW_OBJECT,
 
 	'if': None,
 	'then': None,
@@ -40,12 +40,12 @@ gml_keywords = {
 	'constructor': None,
 
 	# Not technically keywords but mightaswell here anyway
-	     'true': lambda _: BoolLiteralToken(True),
-	    'false': lambda _: BoolLiteralToken(False),
-	     'self': lambda _: ScopeToken(ScopeKind.SELF),
-	    'other': lambda _: ScopeToken(ScopeKind.OTHER),
-	      'all': lambda _: ScopeToken(ScopeKind.ALL),
-	    'noone': lambda _: ScopeToken(ScopeKind.NOONE),
-	   'global': lambda _: GlobalToken(),
-	'undefined': lambda _: UndefinedToken(),
+	     'true': lambda _: TK.TRUE,
+	    'false': lambda _: TK.FALSE,
+	     'self': lambda _: TK.SELF,
+	    'other': lambda _: TK.OTHER,
+	      'all': lambda _: TK.ALL,
+	    'noone': lambda _: TK.NOONE,
+	   'global': lambda _: TK.GLOBAL,
+	'undefined': lambda _: TK.UNDEFINED,
 }

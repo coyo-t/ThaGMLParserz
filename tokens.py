@@ -1,49 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
 
-class Token:
-	pass
-
-
-class Tokens(list[Token]):
-	def __iadd__(self, other):
-		if isinstance(other, Token):
-			self.append(other)
-			return self
-		return super().__iadd__(other)
-
-
-class ScopeKind(Enum):
-	SELF   = ('self',  -1)
-	OTHER  = ('other', -2)
-	ALL    = ('all',   -3)
-	NOONE  = ('noone', -4)
-
-	@property
-	def name (self) -> str:
-		return self.value[0]
-
-	@property
-	def id (self) -> int:
-		return self.value[1]
-
-	def __str__ (self): return self.name
-
-
-class AccessorKind(Enum):
-	DS_LIST = ('|',)
-	DS_MAP  = ('?',)
-	DS_GRID = ('#',)
-	ARRAY   = ('@',)
-	STRUCT  = ('$',)
-
-	@property
-	def symbol (self) -> str:
-		return self.value[0]
-
-	def __str__ (self): return f'[{self.symbol}'
-
-
 class InplaceKind(Enum):
 	ADD  = '+'
 	SUB  = '-'
@@ -59,9 +16,177 @@ class InplaceKind(Enum):
 
 	def __str__ (self): return f'{self.value}='
 
+class Token:
+	pass
 
-class EOFToken(Token):
+class EOF(Token):
 	def __str__ (self): return '--< EOF >--'
+
+class Literal(Token):
+	pass
+
+@dataclass
+class Accessor:
+	class Kind(Enum):
+		DS_LIST = ('|',)
+		DS_MAP  = ('?',)
+		DS_GRID = ('#',)
+		ARRAY   = ('@',)
+		STRUCT  = ('$',)
+		@property
+		def symbol (self) -> str:
+			return self.value[0]
+		def __str__ (self):
+			return f'[{self.symbol}'
+
+	kind: Kind
+	def __str__ (self):
+		return f'< {self.kind} >'
+
+@dataclass
+class Scope(Token):
+	class Kind(Enum):
+		SELF   = ('self',  -1)
+		OTHER  = ('other', -2)
+		ALL    = ('all',   -3)
+		NOONE  = ('noone', -4)
+
+		@property
+		def name (self) -> str:
+			return self.value[0]
+		@property
+		def id (self) -> int:
+			return self.value[1]
+		def __str__ (self):
+			return self.name
+
+	kind: Kind
+
+	def __str__ (self):
+		return f'< {self.kind.name}. >'
+
+
+def simple_token (symbol: str):
+	class SimpleToken(Token):
+		def __str__ (self): return f'< {symbol} >'
+	return SimpleToken()
+
+def bool_literal (state: bool):
+	class BoolLiteral(Literal):
+		def __str__ (self): return f'< {'true' if state else 'false'} >'
+	return BoolLiteral()
+
+def self_literal (kind: Scope.Kind):
+	return Scope(kind)
+
+def accessor_token (kind: Accessor.Kind):
+	return Accessor(kind)
+
+class Tokens(list[Token]):
+	def __iadd__(self, other):
+		if isinstance(other, (Token, TK)):
+			self.append(other)
+			return self
+		return super().__iadd__(other)
+
+
+class TK(Enum):
+	L_BRACE = ()
+	R_BRACE = ()
+
+	L_BRACKET = simple_token('[')
+	R_BRACKET = simple_token(']')
+
+	L_WHIFFLE = simple_token('(')
+	R_WHIFFLE = simple_token(')')
+
+	COMMA = simple_token(',')
+	DOT   = simple_token('.')
+	SEMICOLON = simple_token(';')
+	COLON     = simple_token(':')
+
+	PLUS    = simple_token('+')
+	MINUS   = simple_token('-')
+	STAR    = simple_token('*')
+	SLASH   = simple_token('/')
+	PERCENT = simple_token('%')
+	EQUALS  = simple_token('=')
+
+	L_SHIFT = simple_token('<<')
+	R_SHIFT = simple_token('>>')
+
+	LOGIC_NOT = ()
+	LOGIC_AND = ()
+	LOGIC_OR  = ()
+	LOGIC_XOR = ()
+
+	INT_DIV = simple_token('div')
+	INT_MOD = simple_token('mod')
+
+	EQUALITY   = simple_token('==')
+	INEQUALITY = simple_token('!=')
+	LESS_THAN     = simple_token('<')
+	GREATER_THAN  = simple_token('>')
+	LESS_EQUAL    = simple_token('<=')
+	GREATER_EQUAL = simple_token('>=')
+
+	BITWISE_NOT = simple_token('~')
+	BITWISE_AND = simple_token('&')
+	BITWISE_OR  = simple_token('|')
+	BITWISE_XOR = simple_token('^')
+
+	INCR = simple_token('++')
+	DECR = simple_token('--')
+
+	COMMENT = ()
+
+	QUESTO = simple_token('?')
+	NULLISH = simple_token('??')
+
+	OP_ASSIGN = ()
+	SPECIAL_ACCESSOR = ()
+
+	KEYWORD = ()
+	NEW_OBJECT = simple_token('new')
+	SCOPE_NAME = ()
+	GLOBAL = simple_token('global')
+	UNDEFINED = simple_token('undefined')
+	SCRIPT_ARGUMENT = ()
+
+	ACCESS_DS_LIST = accessor_token(Accessor.Kind.DS_LIST)
+	ACCESS_DS_MAP  = accessor_token(Accessor.Kind.DS_MAP)
+	ACCESS_DS_GRID = accessor_token(Accessor.Kind.DS_GRID)
+	ACCESS_ARRAY   = accessor_token(Accessor.Kind.ARRAY)
+	ACCESS_STRUCT  = accessor_token(Accessor.Kind.STRUCT)
+
+	FOLD_REGION = ()
+	MACRO = ()
+
+	IDENTIFIER = ()
+	BOOLEAN_LITERAL = ()
+	NUMBER_LITERAL  = ()
+	STRING_LITERAL  = ()
+	FSTRING_LITERAL = ()
+
+	TRUE  = bool_literal(True)
+	FALSE = bool_literal(False)
+
+	SELF  = self_literal(Scope.Kind.SELF)
+	OTHER = self_literal(Scope.Kind.OTHER)
+	ALL   = self_literal(Scope.Kind.ALL)
+	NOONE = self_literal(Scope.Kind.NOONE)
+
+	NEWLINE = simple_token('\\n')
+	"""
+	this is needed bc semicolons are not required terminators
+	for statements. Im not 100% on how GML handles
+	implicit semicolons though. -_-
+	"""
+
+	EOF = EOF()
+
+	def is_special_accessor (self):
+		return isinstance(self.value, Accessor)
 
 
 class CommentToken(Token):
@@ -78,160 +203,43 @@ class CommentToken(Token):
 			return f'< /* {repr(self.contents)} */ >'
 		return f'< // {repr(self.contents)} >'
 
-
-class NewlineToken(Token):
-	"""
-	this is needed bc semicolons are not required terminators
-	for statements. Im not 100% on how GML handles
-	implicit semicolons though. -_-
-	"""
-	def __str__(self): return '< \\n >'
-
-
 @dataclass
 class LBraceToken(Token): # {, begin
 	was_word: bool = False
 	def __str__ (self): return f'< {'begin' if self.was_word else '{'} >'
-
-
 @dataclass
 class RBraceToken(Token): # }, end
 	was_word: bool = False
 	def __str__ (self): return f'< {'end' if self.was_word else '}'} >'
-
-
 @dataclass
 class AndToken(Token):
-	was_word:bool = False
+	was_word: bool = False
 	def __str__ (self): return f'< {'and' if self.was_word else '&&'} >'
-
-
 @dataclass
 class OrToken(Token):
-	was_word:bool = False
+	was_word: bool = False
 	def __str__ (self): return f'< {'or' if self.was_word else '||'} >'
-
-
 @dataclass
 class XorToken(Token):
-	was_word:bool = False
+	was_word: bool = False
 	def __str__ (self): return f'< {'xor' if self.was_word else '^^'} >'
-
-
-class LWhiffleToken(Token):
-	def __str__ (self): return '< ( >'
-class RWhiffleToken(Token):
-	def __str__ (self): return '< ) >'
-class LBracketToken(Token):
-	def __str__ (self): return '< [ >'
-class RBracketToken(Token):
-	def __str__ (self): return '< ] >'
-class SlashToken(Token):
-	def __str__ (self): return '< / >'
-class WhackToken(Token):
-	def __str__ (self): return '< \\ >'
-class DotToken(Token):
-	def __str__ (self): return '< . >'
-class CommaToken(Token):
-	def __str__ (self): return '< , >'
-class AtToken(Token):
-	def __str__ (self): return '< @ >'
-class MidasToken(Token): # The Dollar $ymbol
-	def __str__ (self): return '< $ >'
-class ColonToken(Token):
-	def __str__ (self): return '< : >'
-class SemiColonToken(Token):
-	def __str__ (self): return '< ; >'
-class SquiggleToken(Token):
-	def __str__ (self): return '< ~ >'
-class IntDivToken(Token):
-	def __str__ (self): return '< div >'
-class IntModToken(Token):
-	def __str__ (self): return '< mod >'
-class AmpersandToken(Token):
-	def __str__ (self): return '< & >'
-class PipeToken(Token):
-	def __str__ (self): return '< | >'
-class CarrotToken(Token):
-	def __str__ (self): return '< ^ >'
-class PlusToken(Token):
-	def __str__ (self): return '< + >'
-class MinusToken(Token):
-	def __str__ (self): return '< - >'
-class StarToken(Token):
-	def __str__ (self): return '< * >'
-class PercToken(Token):
-	def __str__ (self): return '< % >'
-class IncrToken(Token):
-	def __str__ (self): return '< ++ >'
-class DecrToken(Token):
-	def __str__ (self): return '< -- >'
-class NewObjectToken(Token):
-	def __str__ (self): return '< new >'
-class BangEqualsToken(Token):
-	def __str__ (self): return '< != >'
-class EqualsToken(Token):
-	def __str__ (self): return '< = >'
-class DoubleEqualsToken(Token):
-	def __str__ (self): return '< == >'
-class LShiftToken(Token):
-	def __str__ (self): return '< << >'
-class LessToken(Token):
-	def __str__ (self): return '< < >'
-class LequalToken(Token):
-	def __str__ (self): return '< <= >'
-class RShiftToken(Token):
-	def __str__ (self): return '< >> >'
-class GreaterToken(Token):
-	def __str__ (self): return '< > >'
-class GequalToken(Token):
-	def __str__ (self): return '< >= >'
-class UndefinedToken(Token):
-	def __str__ (self): return '< undefined >'
-class GlobalToken(Token):
-	def __str__ (self): return '< global >'
-class QuestoToken(Token):
-	def __str__ (self): return '< ? >'
-class NullishToken(Token):
-	def __str__ (self): return '< ?? >'
-
 
 @dataclass
 class InplaceOpToken(Token):
 	kind: InplaceKind
 	def __str__ (self): return f'< {self.kind.value} >'
-
-
 @dataclass
 class LogicNotToken(Token):
 	was_word: bool = False
 	def __str__ (self): return f'< {'not' if self.was_word else '!'} >'
-
-
-@dataclass
-class SpecialAccessorToken(Token):
-	kind: AccessorKind
-	def __str__ (self): return f'< {self.kind} >'
-
-
 @dataclass
 class ScriptArgumentToken(Token):
 	index: int
 	def __str__ (self): return f'< argument{'' if self.index < 0 else self.index} >'
-
-
 @dataclass
 class IdentifierToken(Token):
 	name: str
 	def __str__ (self): return f'< Ident: {self.name} >'
-
-
-@dataclass
-class BoolLiteralToken(Token):
-	value: bool
-	def __str__ (self): return f'< {'true' if self.value else 'false'} >'
-
-
 @dataclass
 class RegionToken(Token):
 	is_end: bool
@@ -239,8 +247,6 @@ class RegionToken(Token):
 	def __str__ (self):
 		name = f'#{'end' if self.is_end else ''}region'
 		return f'< {name}{' '+repr(self.contents) if len(self.contents) > 0 else ''} >'
-
-
 @dataclass
 class MacroToken(Token):
 	name: str
@@ -256,34 +262,20 @@ class MacroToken(Token):
 	@property
 	def has_config (self):
 		return self.configuration is not None
-
-
-@dataclass
-class ScopeToken(Token):
-	kind: ScopeKind
-	def __str__ (self): return f'< {self.kind.value}. >'
-
-
 @dataclass
 class KeywordToken(Token):
 	keyword: str
 	def __str__ (self): return f'< {self.keyword} >'
-
-
 @dataclass
-class NumberLiteralToken(Token):
+class NumberLiteralToken(Literal):
 	value: float
 	def __str__ (self): return f'< Val: {self.value} >'
-
-
 @dataclass
-class StringLiteralToken(Token):
+class StringLiteralToken(Literal):
 	string: str
 	def __str__ (self): return f'< Str: {repr(self.string)} >'
-
-
 @dataclass
-class StringTemplateToken(Token):
+class StringTemplateToken(Literal):
 	string:str         =field(default='')
 	bodies:list[Tokens]=field(default_factory=list)
 
@@ -292,6 +284,13 @@ class StringTemplateToken(Token):
 		for body in self.bodies:
 			main += f', {{{', '.join(map(str, body))}}}'
 		return f'< {main} >'
+
+
+
+# -------------------------
+# TODO: KILL ÒvÓ
+# -------------------------
+
 
 
 
