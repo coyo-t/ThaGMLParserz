@@ -81,6 +81,11 @@ class StringReader:
 	def substr_from (self, begin:int):
 		return self._txt[begin: self.tell()]
 
+	def __iter__ (self):
+		while self._ptr < len(self):
+			yield self._txt[self._ptr]
+			self._ptr += 1
+
 	# GOD FUCKING DAMMIT WINDOWS AAAAAAAAAAAAAAAAAAAA
 	def vore_newline (self):
 		"""
