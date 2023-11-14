@@ -84,3 +84,4 @@ def digest_string (s: str):
 					raise DigestStringError(f'Unknown string escape sequence \\{ch}!')
 		outs += ch
 	return outs
+

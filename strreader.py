@@ -65,11 +65,14 @@ class StringReader:
 			return True
 		return False
 
-	def take_while (self, predicate: Predicate) -> str:
+	def take_while (self, predicate: Predicate, xtra_skip=0) -> str:
 		start = self.tell()
 		while predicate(self.peek()) and self.can_read():
 			self.skip()
-		return self.text[start : self.tell()]
+		v = self.text[start : self.tell()]
+		if xtra_skip != 0:
+			self.skip(xtra_skip)
+		return v
 
 	def vore (self, *whats: str):
 		for what in whats:
@@ -77,6 +80,10 @@ class StringReader:
 				return False
 			self.skip()
 		return True
+
+	def tell_read (self):
+		p = self.tell()
+		return p, self.read()
 
 	def substr_from (self, begin:int):
 		return self._txt[begin: self.tell()]

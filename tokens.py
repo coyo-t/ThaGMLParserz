@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 class InplaceKind(Enum):
 	ADD  = '+'
@@ -18,6 +19,14 @@ class InplaceKind(Enum):
 
 class TokenType:
 	pass
+
+@dataclass
+class Token:
+	type: TokenType
+	sub_type: Enum = None
+	location: slice = None
+	metadata: Any = None
+
 
 class EOF(TokenType):
 	def __str__ (self): return '--< EOF >--'
@@ -65,6 +74,9 @@ class Scope(TokenType):
 	def __str__ (self):
 		return f'< {self.kind.name}. >'
 
+@dataclass
+class DualWordSymbolToken(TokenType):
+	was_word: bool = False
 
 def simple_token (symbol: str):
 	class SimpleToken(TokenType):
@@ -123,8 +135,8 @@ class TK(Enum):
 	INT_DIV = simple_token('div')
 	INT_MOD = simple_token('mod')
 
-	EQUALITY   = simple_token('==')
-	INEQUALITY = simple_token('!=')
+	EQUALITY      = simple_token('==')
+	INEQUALITY    = simple_token('!=')
 	LESS_THAN     = simple_token('<')
 	GREATER_THAN  = simple_token('>')
 	LESS_EQUAL    = simple_token('<=')
@@ -204,42 +216,53 @@ class CommentToken(TokenType):
 		return f'< // {repr(self.contents)} >'
 
 @dataclass
-class LBraceToken(TokenType): # {, begin
-	was_word: bool = False
+class LBraceToken(DualWordSymbolToken): # {, begin
 	def __str__ (self): return f'< {'begin' if self.was_word else '{'} >'
+
+
 @dataclass
-class RBraceToken(TokenType): # }, end
-	was_word: bool = False
+class RBraceToken(DualWordSymbolToken): # }, end
 	def __str__ (self): return f'< {'end' if self.was_word else '}'} >'
+
+
 @dataclass
-class AndToken(TokenType):
-	was_word: bool = False
+class AndToken(DualWordSymbolToken):
 	def __str__ (self): return f'< {'and' if self.was_word else '&&'} >'
+
+
 @dataclass
-class OrToken(TokenType):
-	was_word: bool = False
+class OrToken(DualWordSymbolToken):
 	def __str__ (self): return f'< {'or' if self.was_word else '||'} >'
+
+
 @dataclass
-class XorToken(TokenType):
-	was_word: bool = False
+class XorToken(DualWordSymbolToken):
 	def __str__ (self): return f'< {'xor' if self.was_word else '^^'} >'
+
 
 @dataclass
 class InplaceOpToken(TokenType):
 	kind: InplaceKind
 	def __str__ (self): return f'< {self.kind.value} >'
+
+
 @dataclass
-class LogicNotToken(TokenType):
-	was_word: bool = False
+class LogicNotToken(DualWordSymbolToken):
 	def __str__ (self): return f'< {'not' if self.was_word else '!'} >'
+
+
 @dataclass
 class ScriptArgumentToken(TokenType):
 	index: int
 	def __str__ (self): return f'< argument{'' if self.index < 0 else self.index} >'
+
+
 @dataclass
 class IdentifierToken(TokenType):
 	name: str
 	def __str__ (self): return f'< Ident: {self.name} >'
+
+
 @dataclass
 class RegionToken(TokenType):
 	is_end: bool
@@ -247,6 +270,11 @@ class RegionToken(TokenType):
 	def __str__ (self):
 		name = f'#{'end' if self.is_end else ''}region'
 		return f'< {name}{' '+repr(self.contents) if len(self.contents) > 0 else ''} >'
+
+	@staticmethod
+	def pred (ch: str): return ch != '\n'
+
+
 @dataclass
 class MacroToken(TokenType):
 	name: str
@@ -262,18 +290,26 @@ class MacroToken(TokenType):
 	@property
 	def has_config (self):
 		return self.configuration is not None
+
+
 @dataclass
 class KeywordToken(TokenType):
 	keyword: str
 	def __str__ (self): return f'< {self.keyword} >'
+
+
 @dataclass
 class NumberLiteralToken(Literal):
 	value: float
 	def __str__ (self): return f'< Val: {self.value} >'
+
+
 @dataclass
 class StringLiteralToken(Literal):
 	string: str
 	def __str__ (self): return f'< Str: {repr(self.string)} >'
+
+
 @dataclass
 class StringTemplateToken(Literal):
 	string:str         =field(default='')
@@ -284,14 +320,5 @@ class StringTemplateToken(Literal):
 		for body in self.bodies:
 			main += f', {{{', '.join(map(str, body))}}}'
 		return f'< {main} >'
-
-
-
-# -------------------------
-# TODO: KILL ÒvÓ
-# -------------------------
-
-
-
 
 

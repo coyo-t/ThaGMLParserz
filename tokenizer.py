@@ -13,24 +13,7 @@ class ParseError(Exception):
 class ParseNumberError(ParseError):
 	pass
 
-__whwh = (
-	' \t\v\f'
-	'\u0085\u00A0\u1680\u180E\u2000\u2001\u2002\u2003'
-	'\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u200B'
-	'\u200C\u200D\u2028\u2029\u202F\u205F\u2060\u3000'
-	'\uFEFF'
-)
-
-KINDA_WHITESPACE = lambda ch: ch in __whwh
-"""
-dont use skip whitespace bc we need newlines (including \\r, since
-windows loves to do \\r\\n instead of just \\n -_-
-
-otherwise taken from:
-
-https://manual.yoyogames.com/#t=Additional_Information%2FWhitespace_Characters.htm
-"""
-
+KINDA_WHITESPACE = lambda ch: ch in mth.kinda_gml_whitespace
 
 def read_multiline_comment (f: StringReader):
 	depth = 0
@@ -143,7 +126,6 @@ def handle_number (f: StringReader) -> TokenType:
 
 	if f.peek() == '.':
 		if is_float:
-			# extra dot, not suppourted!
 			raise ParseNumberError('Extra dot in numeric literal!')
 		else:
 			is_float = True
@@ -185,10 +167,12 @@ def handle_string (f: StringReader, is_multiline: bool):
 			f.skip()
 		raise ParseError('Unclosed string')
 
-#TODO:
-#	do string templ have escape seqs for { and }?
-#	how does it handled unclosed {?
+
 def handle_string_template (f: StringReader):
+	#TODO:
+	#	do string templ have escape seqs for { and }?
+	#	how does it handled unclosed {?
+
 	# Maybe a little silly to duplicate code like this but uh.
 	# ._. i dont care its easier
 	start = f.tell()
@@ -243,14 +227,16 @@ def handle_string_template (f: StringReader):
 def tokenize (src: str, handle_whack_as_newline=False) -> Tokens:
 	f = StringReader(src)
 	tokens = Tokens()
+	begin = 0
 
-	def add (tk: TokenType | TK):
+	def add (tk: TokenType | TK, *metadata):
 		nonlocal tokens
 		tokens += tk
+		print(tk, slice(begin, f.tell()))
 
 	while f.can_read():
 		f.take_while(KINDA_WHITESPACE)
-		ch = f.read()
+		begin, ch = f.tell_read()
 		match ch:
 			case '':
 				break
@@ -268,8 +254,7 @@ def tokenize (src: str, handle_whack_as_newline=False) -> Tokens:
 					raise ParseError('Expected newline after backslash continuator!')
 			case '/':
 				if f.vore('/'):
-					add(CommentToken(f.take_while(lambda c: c != '\n'), False))
-					f.skip() # ending newline
+					add(CommentToken(f.take_while(lambda c: c != '\n', 1), False))
 				elif f.vore('*'):
 					start = f.tell()
 					read_multiline_comment(f)
@@ -292,7 +277,6 @@ def tokenize (src: str, handle_whack_as_newline=False) -> Tokens:
 					add(handle_string(f, True))
 				else:
 					raise ParseError('Unexpected @ in stream!')
-					# tokens += AtToken()
 			case '$':
 				if f.vore('"'):
 					add(handle_string_template(f))
@@ -386,18 +370,15 @@ def tokenize (src: str, handle_whack_as_newline=False) -> Tokens:
 				#TODO: This method is sort of complicated, im not sure how to
 				#	report an error between an unknown preproc directive or a
 				#	problem with parsing a hex colour
-				begin = f.tell() - 1
 				name = f.take_while(mth.is_identifier)
 				if name == 'macro':
 					add(handle_macro(f))
 				elif name == 'region':
 					f.take_while(KINDA_WHITESPACE)
-					add(RegionToken(False, f.take_while(lambda c: c != '\n')))
-					f.skip() # trailing newline
+					add(RegionToken(False, f.take_while(RegionToken.pred, 1))) # skips newline
 				elif name == 'endregion':
 					f.take_while(KINDA_WHITESPACE)
-					add(RegionToken(True, f.take_while(lambda c: c != '\n')))
-					f.skip() # trailing newline
+					add(RegionToken(True, f.take_while(RegionToken.pred, 1))) # skips newline
 				elif name == '':
 					raise ParseError(f'Unexpected # in stream @{begin}!')
 				elif all(map(mth.is_allowed_number_hex, name)):
