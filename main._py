@@ -1,0 +1,400 @@
+from pathlib import Path
+from strreader import StringReader
+from tokens import *
+import mth
+from gml_keywords import gml_keywords
+
+ASSETS  = Path('./assets')
+FPWGMS2 = Path('D:/_projects/parallel2shit/gml')
+SCRIPTS = FPWGMS2/'__parallel/fnaf1 recreation/scripts'
+GMS2PROJ = Path('D:/_projects/xGamemakerStudio2')
+
+
+class ParseError(Exception):
+	pass
+
+
+class ParseNumberError(ParseError):
+	pass
+
+
+def script_name (name:str,root=SCRIPTS):
+	return root/name/f'{name}.gml'
+
+
+def read_multiline_comment (f: StringReader):
+	depth = 0
+	while True:
+		if f.vore('*', '/'):
+			if depth > 0:
+				depth -= 1
+				continue
+			else:
+				return
+		# nested multi-line comments
+		# GML doesnt suppourt them, but I Will Fuck You.
+		# here its considered an error to have an unclosed multiline
+		# comment inside another multiline comment. This is far more permissive
+		# for multicomming out other blocks of text that may or may not have multiline
+		# comments in them already.
+		# That, or i could do something stupid like have the first pass of the tokenizer
+		# do *just* comments and determine whether or not shits nested by whether it reaches
+		# the end of the file and finds the depth is still greater than 0. that would
+		# work I Guess, but damn if that isnt fucking stupid -_-
+		elif f.vore('/', '*'):
+			depth += 1
+			continue
+		elif f.peek() == '':
+			raise ParseError('Unclosed multiline comment!')
+		f.skip()
+
+def read_hex_number (f: StringReader) -> Token:
+	name = f.take_while(mth.is_allowed_number_hex)
+	return NumberLiteralToken(int(name.replace('_', ''), 16))
+
+def read_css_colour (f:StringReader)->Token:
+	name = f.take_while(mth.is_allowed_number_hex).replace('_', '')
+	if (l:=len(name)) > 6:
+		raise ParseNumberError(f'Too many digits for hex colour code #{name}!')
+	elif l < 6:
+		raise ParseNumberError(f'Not enough digits for hex colour code #{name}!')
+	value = int(name, 16)
+	return NumberLiteralToken(((value>>16)&0xFF)|(value&0x00FF00)|((value&0xFF)<<16))
+
+#TODO:
+#	actually handle the tokenstream a macro contains, rather than
+#	just the name and configuration
+def handle_macro (f: StringReader) -> Token:
+	# So, the #macro x:y syntax is actually config:name,
+	# not name:config. Why? i dont know! this is stupid! but okay
+	#TODO:
+	#	this function is ugly as sin
+	#TODO:
+	#	handle unexpected newlines
+	f.skip_whitespace()
+	if mth.is_number(ch:=f.peek()):
+		raise ParseError(f'Unexpected number "{ch}" where macro name shouldve started!')
+	elif not mth.is_identifier(ch):
+		if ch == '\n':
+			raise ParseError(f'Unexpected newline where macro name shouldve started!"')
+		elif ch == '\r':
+			raise ParseError(
+				f'Unexpected carriage return where macro name shouldve started'
+				' (probably a newline??)!"'
+			)
+		raise ParseError(f'Unexpected symbol "{ch}" where macro name shouldve started!"')
+	tok = MacroToken(f.take_while(mth.is_identifier))
+	# 0_0
+	if f.vore(':'):
+		if mth.is_number(ch:=f.peek()):
+			raise ParseError(f'Unexpected number "{ch}" where macro config shouldve started!')
+		elif not mth.is_identifier(ch):
+			if ch == '\n':
+				raise ParseError(f'Unexpected newline where macro config shouldve started!"')
+			elif ch == '\r':
+				raise ParseError(
+					f'Unexpected carriage return where macro config shouldve started'
+					' (probably a newline??)!"'
+				)
+			raise ParseError(f'Unexpected symbol "{ch}" where macro config shouldve started!"')
+		tok.configuration = f.take_while(mth.is_identifier)
+	return tok
+
+
+#TODO:
+#	handle $ for hex numbers and # for RGB8 colour literals
+def handle_number (f: StringReader) -> Token:
+	start = f.tell()
+	ch = f.read()
+
+	is_float = False
+	if ch == '.':
+		# number is a float that omits the leading 0
+		is_float = True
+
+	# dont bother checking for the non-base 10 literals if we
+	# already know we're parsing a float
+	if not is_float and ch == '0':
+		# might be parsing a hex or binary literal
+		if f.vore('xX'): # hexliteral
+			return read_hex_number(f)
+		elif f.vore('bB'): # binliteral
+			start = f.tell()
+			f.take_while(mth.is_allowed_number_bin)
+			return NumberLiteralToken(int(f.substr_from(start).replace('_', ''), 2))
+	f.take_while(mth.is_allowed_number_lit)
+
+	if f.peek() == '.':
+		if is_float:
+			# extra dot, not suppourted!
+			raise ParseNumberError('Extra dot in numeric literal!')
+		else:
+			is_float = True
+			f.skip()
+	# still try to take more regardless of whether we know the number
+	# is a float or not, as the numeric literal might leave off the
+	# trailing dot; IE, `1.`
+	f.take_while(mth.is_allowed_number_lit)
+	if is_float:
+		return NumberLiteralToken(float(f.substr_from(start).replace('_', '')))
+	else:
+		return NumberLiteralToken(int(f.substr_from(start).replace('_', '')))
+
+
+# TODO!!!: template strings (aka fstrings)
+def handle_string (f: StringReader, is_multiline: bool):
+	start = f.tell()
+	if is_multiline:
+		while (ch:=f.peek()) != '':
+			if ch == '"':
+				tk = StringLiteralToken(f.substr_from(start))
+				f.skip() # trailing "
+				return tk
+			f.skip()
+		raise ParseError('Unclosed string')
+	else:
+		# im not actually sure why newlines arent fine in GML. theyd have
+		# to explicitly check and stop parsing a string if they encounter a newline.
+		# maybe their tokenizer works on individual lines hrm.
+		# TODO: escape sequences
+		while (ch:=f.peek()) != '':
+			if ch == '\n':
+				raise ParseError('String broken by newline')
+			elif ch == '"' and f.prev() != '\\':
+				tk = StringLiteralToken(f.substr_from(start))
+				f.skip() # trailing "
+				return tk
+			f.skip()
+		raise ParseError('Unclosed string')
+
+
+def main (targ: str|Path):
+	f = StringReader(Path(targ).read_text('utf8'))
+
+	tokens = Tokens()
+	while f.can_read():
+		# dont use skip whitespace bc we need newlines (including
+		# \r, since windows loves to do \r\n instead of just \n -_-
+		f.skip_while(lambda ch: ch in ' \t\v\f')
+		ch = f.read()
+
+		match ch:
+			case '':
+				break
+			#TODO:
+			#	these two should RLE encode how many newlines in a row there were
+			#	mostly because the *number* of newlines doesnt rlly matter ._.
+			case '\r':
+				if f.vore('\n'):
+					tokens += NewlineToken()
+				else:
+					continue
+			case '\n':
+				tokens += NewlineToken()
+			case '/':
+				if f.vore('/'):
+					start = f.tell()
+					f.skip_while(lambda c: c != '\n')
+					tokens += CommentToken(f.substr_from(start), False)
+					f.skip()
+				elif f.vore('*'):
+					start = f.tell()
+					read_multiline_comment(f)
+					tokens += CommentToken(f.text[start : f.tell()-2], True)
+				elif f.vore('='):
+					tokens += InplaceOpToken(InplaceKind.DIV)
+				else:
+					tokens += SlashToken()
+			case '.':
+				# might be reading a decimal number that omits the leading 0
+				if mth.is_number(f.peek()):
+					f.rewind()
+					tokens += handle_number(f)
+				else:
+					tokens += DotToken()
+			case '"':
+				tokens += handle_string(f, False)
+			case '@':
+				if f.vore('"'):
+					tokens += handle_string(f, True)
+				else:
+					tokens += AtToken()
+			case '$':
+				if f.vore('"'):
+					raise NotImplementedError('I HAVENT DONE FSTRINGS AAAAAAAAAA!!!!!!!!')
+				else:
+					if mth.is_allowed_number_hex(f.peek()):
+						tokens += read_hex_number(f)
+					else:
+						tokens += MidasToken()
+			case '?':
+				if f.vore('?'):
+					if f.vore('='):
+						tokens += InplaceOpToken(InplaceKind.NULL)
+					else:
+						tokens += NullishToken()
+				else:
+					tokens += QuestoToken()
+			case '~': tokens += SquiggleToken()
+			case '!':
+				if f.vore('='):
+					tokens += BangEqualsToken()
+				else:
+					tokens += LogicNotToken(False)
+			case '=':
+				if f.vore('='):
+					tokens += DoubleEqualsToken()
+				else:
+					tokens += EqualsToken()
+			case '{': tokens += LBraceToken()
+			case '}': tokens += RBraceToken()
+			case '(': tokens += LWhiffleToken()
+			case ')': tokens += RWhiffleToken()
+			case '[':
+				if   f.vore('|'): tokens += SpecialAccessorToken(AccessorKind.DS_LIST)
+				elif f.vore('?'): tokens += SpecialAccessorToken(AccessorKind.DS_MAP)
+				elif f.vore('#'): tokens += SpecialAccessorToken(AccessorKind.DS_GRID)
+				elif f.vore('@'): tokens += SpecialAccessorToken(AccessorKind.ARRAY)
+				elif f.vore('$'): tokens += SpecialAccessorToken(AccessorKind.STRUCT)
+				else: tokens += LBracketToken()
+			case ']': tokens += RBracketToken()
+			case ',': tokens += CommaToken()
+			case ':': tokens += ColonToken()
+			case ';': tokens += SemiColonToken()
+			case '+':
+				if   f.vore('='): tokens += InplaceOpToken(InplaceKind.ADD)
+				elif f.vore('+'): tokens += IncrToken()
+				else: tokens += PlusToken()
+			case '-':
+				if   f.vore('='): tokens += InplaceOpToken(InplaceKind.SUB)
+				elif f.vore('-'): tokens += DecrToken()
+				else: tokens += MinusToken()
+			case '*':
+				if f.vore('='):
+					tokens += InplaceOpToken(InplaceKind.MUL)
+				else:
+					tokens += StarToken()
+			case '%':
+				if f.vore('='):
+					tokens += InplaceOpToken(InplaceKind.MOD)
+				else:
+					tokens += PercToken()
+			case '&':
+				if   f.vore('&'): tokens += AndToken(False)
+				elif f.vore('='): tokens += InplaceOpToken(InplaceKind.AND)
+				else: tokens += AmpersandToken()
+			case '|':
+				if   f.vore('|'): tokens += OrToken(False)
+				elif f.vore('='): tokens += InplaceOpToken(InplaceKind.OR)
+				else: tokens += PipeToken()
+			case '^':
+				if   f.vore('^'): tokens += XorToken(False)
+				elif f.vore('='): tokens += InplaceOpToken(InplaceKind.XOR)
+				else: tokens += CarrotToken()
+			case '<':
+				if f.vore('='):
+					tokens += LequalToken()
+				elif f.vore('<'):
+					if f.vore('='):
+						tokens += InplaceOpToken(InplaceKind.LSH)
+					else:
+						tokens += LShiftToken()
+				else:
+					tokens += LessToken()
+			case '>':
+				if f.vore('='):
+					tokens += GequalToken()
+				elif f.vore('>'):
+					if f.vore('='):
+						tokens += InplaceOpToken(InplaceKind.RSH)
+					else:
+						tokens += RShiftToken()
+				else:
+					tokens += GreaterToken()
+			case '#':
+				# this isnt particuarly efficient -_- but whatever
+				if f.vore_substr('macro'):
+					tokens += handle_macro(f)
+				elif f.vore_substr('region'):
+					tokens += RegionToken(False)
+				elif f.vore_substr('endregion'):
+					tokens += RegionToken(True)
+				elif mth.is_allowed_number_hex(f.peek()):
+					tokens += read_css_colour(f)
+				else:
+					raise ParseError(f'Unexpected character in stream "{ch}"')
+			case _:
+				if mth.is_letter(ch) or ch == '_':
+					f.rewind()
+					name = f.take_while(mth.is_identifier)
+					if name in gml_keywords:
+						match name:
+							case 'begin':  tokens += LBraceToken(True)
+							case 'end':    tokens += RBraceToken(True)
+							case 'and':    tokens += AndToken(True)
+							case 'or':     tokens += OrToken(True)
+							case 'xor':    tokens += XorToken(True)
+							case 'not':    tokens += LogicNotToken(True)
+							case 'div':    tokens += IntDivToken()
+							case 'mod':    tokens += IntModToken()
+							case 'new':    tokens += NewObjectToken()
+							case 'true':   tokens += BoolLiteralToken(True)
+							case 'false':  tokens += BoolLiteralToken(False)
+							case 'self':   tokens += ScopeToken(ScopeKind.SELF)
+							case 'other':  tokens += ScopeToken(ScopeKind.OTHER)
+							case 'all':    tokens += ScopeToken(ScopeKind.ALL)
+							case 'noone':  tokens += ScopeToken(ScopeKind.NOONE)
+							case 'global': tokens += ScopeToken(ScopeKind.GLOBAL)
+							case 'undefined': tokens += UndefinedToken()
+							case 'local':
+								raise ParseError('"local" is a reserved keyword for future use!')
+							case _:
+								tokens += KeywordToken(name)
+					else:
+						if name.startswith('argument'):
+							idx = name.lstrip('argument')
+							if len(idx) == 0:
+								tokens += ScriptArgumentToken(-1)
+								continue
+							try:
+								idx = int(idx)
+								if idx in range(0, 16):
+									tokens += ScriptArgumentToken(idx)
+									continue
+							except ValueError:
+								pass
+						tokens += IdentifierToken(name)
+				elif mth.is_number(ch):
+					f.rewind()
+					tokens += handle_number(f)
+				else:
+					raise ParseError(f'Unexpected character in stream "{ch}"')
+	tokens += EOFToken()
+	return tokens
+
+
+def mm ():
+	print('---- BEGIN ----')
+	# result = main(script_name('__scr_ai_oldStep'))
+	# result = main(script_name('scr_menu_night6'))
+	# result = main(ASSETS/'draw_rout_cctv.gml')
+	# result = main(script_name('scr_lz4', GMS2PROJ/'grimdawnfdumpforcazey/scripts'))
+	# result = main(script_name('scr_macro', GMS2PROJ/'grimdawnfdumpforcazey/scripts'))
+	result = main(script_name('_debug', FPWGMS2/'FPW_beta_conv/scripts'))
+	# result = main(script_name('script_listener', GMS2PROJ/'mc adiobussy tesst2/scripts'))
+	# result = main(script_name('player_camera_update', GMS2PROJ/'__old/Popgoes 1 Repainted/scripts'))
+	depth = 0
+	for tk in result:
+		ident = '\t' * depth
+		if isinstance(tk, (LBraceToken, LBracketToken, LWhiffleToken)):
+			depth += 1
+			print(f'{ident}{tk}')
+			continue
+		elif isinstance(tk, (RBraceToken, RBracketToken, RWhiffleToken)):
+			depth -= 1
+			ident = '\t' * depth
+		print(f'{ident}{tk}')
+	print('----  END  ----')
+
+if __name__ == '__main__':
+	mm()
