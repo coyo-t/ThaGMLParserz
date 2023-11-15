@@ -48,16 +48,6 @@ class StringReader:
 	def seek (self, offset: int):
 		self._ptr += offset
 
-	def skip_while (self, predicate: Predicate):
-		while True:
-			if self.can_read() and predicate(self.peek()):
-				self.skip()
-				continue
-			return
-
-	def skip_whitespace (self):
-		self.skip_while(lambda ch: ch in string.whitespace)
-
 	def vore_substr (self, substr: str):
 		l = len(substr)
 		if self._txt[self._ptr:self._ptr+l] == substr:
