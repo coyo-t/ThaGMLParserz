@@ -11,16 +11,19 @@ class Reader:
 	def __len__ (self):
 		return len(self._str)
 
-	@property
-	def cursor (self):
+	def tell (self):
 		return self._ptr
 
-	@cursor.setter
-	def cursor (self, value: int):
-		self._ptr = value
+	def seek (self, position: int):
+		self._ptr = position
 
-	def tell (self):
-		return self.cursor
+	@property
+	def cursor (self):
+		return self.tell()
+
+	@cursor.setter
+	def cursor (self, value:int):
+		self.seek(value)
 
 	@property
 	def text (self):

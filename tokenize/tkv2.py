@@ -10,6 +10,7 @@ char_is_hex_number = lambda ch: ch == '_' or (ch in string.hexdigits)
 
 is_identifier_start = lambda ch: (ch in string.ascii_letters) or ch == '_'
 is_identifier = lambda ch: (ch in string.digits) or is_identifier_start(ch)
+is_number_lit = lambda ch: (ch in string.digits) or ch == '_'
 
 class DualTokenType(Enum):
 	SYMBOL = False
@@ -33,7 +34,7 @@ class AccessorType(Enum):
 	ARRAY  = ('@',)
 	STRUCT = ('$',)
 
-class KeywordType(Enum):
+class KWType(Enum):
 	IF = auto()
 	THEN = auto()
 	ELSE = auto()
@@ -73,7 +74,7 @@ class LiteralType(Enum):
 	NOONE  = auto()
 	GLOBAL = auto()
 
-class TokenType(Enum):
+class TKType(Enum):
 	LCURLY = auto()
 	RCURLY = auto()
 	LBRACKET = auto()
@@ -94,6 +95,14 @@ class TokenType(Enum):
 	DECR = auto()
 
 	EQUALS = auto()
+
+	DOT       = auto()
+	COMMA     = auto()
+	SEMICOLON = auto()
+	COLON     = auto()
+
+	QUESTION = auto()
+	NULLISH  = auto()
 
 	EQUALITY      = auto()
 	INEQUALITY    = auto()
@@ -118,7 +127,9 @@ class TokenType(Enum):
 
 	ACCESSOR = auto()
 
-	COMMENT = auto()
+	COMMENT   = auto()
+	REGION    = auto()
+	ENDREGION = auto()
 
 	IDENTIFIER = auto()
 	LITERAL = auto()
@@ -178,63 +189,110 @@ class Tokenizer:
 
 	def handle_identifier (self):
 		name = self.f.vore_while(is_identifier)
-		# This is silly
+		# TODO: This is very silly
 		match name:
-			case 'begin': return TokenType.LCURLY, DualTokenType.WORD
-			case   'end': return TokenType.RCURLY, DualTokenType.WORD
-			case   'div': return (TokenType.INT_DIV,)
-			case   'mod': return (TokenType.INT_MOD,)
-			case   'not': return TokenType.LOGIC_NOT, DualTokenType.WORD
-			case   'and': return TokenType.LOGIC_AND, DualTokenType.WORD
-			case    'or': return TokenType.LOGIC_OR,  DualTokenType.WORD
-			case   'xor': return TokenType.LOGIC_XOR, DualTokenType.WORD
+			case 'begin': return TKType.LCURLY, DualTokenType.WORD
+			case   'end': return TKType.RCURLY, DualTokenType.WORD
+			case   'div': return (TKType.INT_DIV,)
+			case   'mod': return (TKType.INT_MOD,)
+			case   'not': return TKType.LOGIC_NOT, DualTokenType.WORD
+			case   'and': return TKType.LOGIC_AND, DualTokenType.WORD
+			case    'or': return TKType.LOGIC_OR,  DualTokenType.WORD
+			case   'xor': return TKType.LOGIC_XOR, DualTokenType.WORD
 
-			case       'all': return TokenType.LITERAL, LiteralType.ALL
-			case      'self': return TokenType.LITERAL, LiteralType.SELF
-			case      'true': return TokenType.LITERAL, LiteralType.BOOLEAN, True
-			case     'false': return TokenType.LITERAL, LiteralType.BOOLEAN, False
-			case     'other': return TokenType.LITERAL, LiteralType.OTHER
-			case     'noone': return TokenType.LITERAL, LiteralType.NOONE
-			case    'global': return TokenType.LITERAL, LiteralType.GLOBAL
-			case 'undefined': return TokenType.LITERAL, LiteralType.UNDEFINED
+			case       'all': return TKType.LITERAL, LiteralType.ALL
+			case      'self': return TKType.LITERAL, LiteralType.SELF
+			case      'true': return TKType.LITERAL, LiteralType.BOOLEAN, True
+			case     'false': return TKType.LITERAL, LiteralType.BOOLEAN, False
+			case     'other': return TKType.LITERAL, LiteralType.OTHER
+			case     'noone': return TKType.LITERAL, LiteralType.NOONE
+			case    'global': return TKType.LITERAL, LiteralType.GLOBAL
+			case 'undefined': return TKType.LITERAL, LiteralType.UNDEFINED
 
-			case      'if': return TokenType.KEYWORD, KeywordType.IF
-			case    'then': return TokenType.KEYWORD, KeywordType.THEN
-			case    'else': return TokenType.KEYWORD, KeywordType.ELSE
-			case    'case': return TokenType.KEYWORD, KeywordType.CASE
-			case  'switch': return TokenType.KEYWORD, KeywordType.SWITCH
-			case 'default': return TokenType.KEYWORD, KeywordType.DEFAULT
+			case      'if': return TKType.KEYWORD, KWType.IF
+			case    'then': return TKType.KEYWORD, KWType.THEN
+			case    'else': return TKType.KEYWORD, KWType.ELSE
+			case    'case': return TKType.KEYWORD, KWType.CASE
+			case  'switch': return TKType.KEYWORD, KWType.SWITCH
+			case 'default': return TKType.KEYWORD, KWType.DEFAULT
 
-			case       'do': return TokenType.KEYWORD, KeywordType.DO
-			case      'for': return TokenType.KEYWORD, KeywordType.FOR
-			case     'with': return TokenType.KEYWORD, KeywordType.WITH
-			case    'while': return TokenType.KEYWORD, KeywordType.WHILE
-			case    'until': return TokenType.KEYWORD, KeywordType.UNTIL
-			case    'break': return TokenType.KEYWORD, KeywordType.BREAK
-			case   'repeat': return TokenType.KEYWORD, KeywordType.REPEAT
-			case 'continue': return TokenType.KEYWORD, KeywordType.CONTINUE
+			case       'do': return TKType.KEYWORD, KWType.DO
+			case      'for': return TKType.KEYWORD, KWType.FOR
+			case     'with': return TKType.KEYWORD, KWType.WITH
+			case    'while': return TKType.KEYWORD, KWType.WHILE
+			case    'until': return TKType.KEYWORD, KWType.UNTIL
+			case    'break': return TKType.KEYWORD, KWType.BREAK
+			case   'repeat': return TKType.KEYWORD, KWType.REPEAT
+			case 'continue': return TKType.KEYWORD, KWType.CONTINUE
 
-			case         'var': return TokenType.KEYWORD, KeywordType.VAR
-			case        'enum': return TokenType.KEYWORD, KeywordType.ENUM
-			case      'static': return TokenType.KEYWORD, KeywordType.STATIC
-			case    'function': return TokenType.KEYWORD, KeywordType.FUNCTION
-			case   'globalvar': return TokenType.KEYWORD, KeywordType.GLOBALVAR
-			case 'constructor': return TokenType.KEYWORD, KeywordType.CONSTRUCTOR
+			case         'var': return TKType.KEYWORD, KWType.VAR
+			case        'enum': return TKType.KEYWORD, KWType.ENUM
+			case      'static': return TKType.KEYWORD, KWType.STATIC
+			case    'function': return TKType.KEYWORD, KWType.FUNCTION
+			case   'globalvar': return TKType.KEYWORD, KWType.GLOBALVAR
+			case 'constructor': return TKType.KEYWORD, KWType.CONSTRUCTOR
 
-			case   'exit': return TokenType.KEYWORD, KeywordType.EXIT
-			case 'return': return TokenType.KEYWORD, KeywordType.RETURN
-			case 'delete': return TokenType.KEYWORD, KeywordType.DELETE
+			case   'exit': return TKType.KEYWORD, KWType.EXIT
+			case 'return': return TKType.KEYWORD, KWType.RETURN
+			case 'delete': return TKType.KEYWORD, KWType.DELETE
 
-			case     'try': return TokenType.KEYWORD, KeywordType.TRY
-			case   'catch': return TokenType.KEYWORD, KeywordType.CATCH
-			case   'throw': return TokenType.KEYWORD, KeywordType.THROW
-			case 'finally': return TokenType.KEYWORD, KeywordType.FINALLY
+			case     'try': return TKType.KEYWORD, KWType.TRY
+			case   'catch': return TKType.KEYWORD, KWType.CATCH
+			case   'throw': return TKType.KEYWORD, KWType.THROW
+			case 'finally': return TKType.KEYWORD, KWType.FINALLY
 
-		return TokenType.IDENTIFIER, name
+		return TKType.IDENTIFIER, name
+
+	def handle_multiline_string_literal (self):
+		"""Assumes beginning @" was vored"""
+		# cant just use `f.vore_until`, have to check for EOF
+		# and report back an error that the string is unclosed
+		f = self.f
+		begin = f.tell()
+		while True:
+			ch = f.read()
+			if ch == '':
+				raise TokenizeError('Unclosed @string!')
+			elif ch == '"':
+				break
+		# trailing " already skiped due to the way the loop works
+		return f.text[begin:f.tell()-1]
+
+	def handle_string_literal (self):
+		"""Assumes beginning " was vored"""
+		f = self.f
+		begin = f.tell()
+		while True:
+			ch = f.read()
+			if ch == '"':
+				if f.peek(-1) == '\\':
+					continue
+				break
+			elif ch == '\n':
+				raise TokenizeError('Newline in string literal!')
+			elif ch == '':
+				raise TokenizeError('Unclosed string!')
+		print("DONT FORGET!!! DO EXCAPREPEPEPEPEEEEEE SEQUENCES!!!!!")
+		# trailing " already skiped due to the way the loop works
+		return f.text[begin:f.tell()-1]
+
+	def handle_number_literal (self):
+		f = self.f
+		start = f.tell()
+		f.skip_while(is_number_lit)
+		is_float = f.vore('.')
+		f.skip_while(is_number_lit)
+		return (
+			TKType.LITERAL,
+			LiteralType.NUMBER,
+			(float if is_float else int)(f.substr_from(start)),
+			NumberLiteralSrc.FLOAT if is_float else NumberLiteralSrc.INT
+		)
+
 
 	def add (self, token, *metadata):
 		# self.tokens.append(token)
-		nn = token.name if isinstance(token, TokenType) else str(token)
+		nn = token.name if isinstance(token, TKType) else str(token)
 		sl = slice(self.begin, self.f.tell())
 		print(f'{nn} {metadata}')
 
@@ -245,10 +303,16 @@ class Tokenizer:
 		self.line_index = self.f.tell()
 		self.line_number += 1
 
-	def inplace_quick (self, cbasetype: TokenType):
+	def inplace_quick (self, cbasetype: TKType):
 		if self.f.vore('='):
-			self.add(TokenType.IN_PLACE_OP, cbasetype)
+			self.add(TKType.IN_PLACE_OP, cbasetype)
 		self.add(cbasetype)
+
+	def region_quick (self, cbasetype: TKType):
+		com_begin = self.f.tell()
+		self.f.skip_until('\n', True)
+		# dont include newline in comment body
+		self.add(cbasetype, self.f.text[com_begin:self.f.tell() - 1])
 
 	def tokenize (self):
 		f = self.f
@@ -259,94 +323,128 @@ class Tokenizer:
 			ch = f.read()
 			match ch:
 				case '\n':
-					self.new_line(); add(TokenType.NEWLINE)
+					self.new_line(); add(TKType.NEWLINE)
 				case '\\':
 					if not self.do_line_continues:
 						raise TokenizeError('Unexpected whack (\\) in stream!')
 					if f.vore('\n'):
-						self.new_line(); add(TokenType.NEWLINE)
+						self.new_line(); add(TKType.NEWLINE)
 					else:
 						raise TokenizeError('Expected newline after continuator (\\)!')
 				case '"':
-					raise NotImplementedError('String')
+					add(TKType.LITERAL, LiteralType.STRING, self.handle_string_literal())
 				case '@' if f.vore('"'):
-					raise NotImplementedError('Multi-line string literal')
+					add(TKType.LITERAL, LiteralType.STRING, self.handle_multiline_string_literal())
 				case '$' if f.vore('"'):
 					raise NotImplementedError('String template')
 				case '$' if f.peek_is(char_is_hex_number):
-					add(TokenType.LITERAL, LiteralType.NUMBER, self.handle_hexadecimal_literal(), NumberLiteralSrc.HEX)
+					add(TKType.LITERAL, LiteralType.NUMBER, self.handle_hexadecimal_literal(), NumberLiteralSrc.HEX)
 				case '0' if f.vore('xX'):
-					add(TokenType.LITERAL, LiteralType.NUMBER, self.handle_hexadecimal_literal(), NumberLiteralSrc.HEX)
+					add(TKType.LITERAL, LiteralType.NUMBER, self.handle_hexadecimal_literal(), NumberLiteralSrc.HEX)
 				case '0' if f.vore('bB'):
-					add(TokenType.LITERAL, LiteralType.NUMBER, self.handle_binary_literal(), NumberLiteralSrc.BIN)
-				case '{': add(TokenType.LCURLY, DualTokenType.SYMBOL)
-				case '}': add(TokenType.RCURLY, DualTokenType.SYMBOL)
-				case '(': add(TokenType.LWHIFFLE)
-				case ')': add(TokenType.RWHIFFLE)
+					add(TKType.LITERAL, LiteralType.NUMBER, self.handle_binary_literal(), NumberLiteralSrc.BIN)
+				case '#':
+					mk_begin = f.tell()
+					name = f.vore_while(is_identifier)
+					if name == 'region':
+						self.region_quick(TKType.REGION)
+					elif name == 'endregion':
+						self.region_quick(TKType.ENDREGION)
+					elif name == 'macro':
+						raise NotImplementedError('MACRO')
+					else:
+						f.seek(mk_begin)
+						name = f.vore_while(char_is_hex_number).replace('_', '')
+						if len(name) < 6:
+							raise TokenizeError(f'Not enough digits for colour constant {name}!')
+						elif len(name) > 6:
+							raise TokenizeError(f'Too many digits for colour constant {name}!')
+						col = int(name, 16)
+						col = ((col>>16)&0xFF)|(col&0xFF00)|((col&0xFF)<<16)
+						add(TKType.LITERAL, LiteralType.NUMBER, col, NumberLiteralSrc.COLOUR)
+				case ',': add(TKType.COMMA)
+				case ';': add(TKType.SEMICOLON)
+				case ':': add(TKType.COLON)
+				case '.':
+					# float literal might leave off the leading 0
+					if f.peek_is(string.digits):
+						f.rewind()
+						add(*self.handle_number_literal())
+					else:
+						add(TKType.DOT)
+				case '{': add(TKType.LCURLY, DualTokenType.SYMBOL)
+				case '}': add(TKType.RCURLY, DualTokenType.SYMBOL)
+				case '(': add(TKType.LWHIFFLE)
+				case ')': add(TKType.RWHIFFLE)
 				case '[':
-					if   f.vore('|'): add(TokenType.ACCESSOR, AccessorType.LIST)
-					elif f.vore('?'): add(TokenType.ACCESSOR, AccessorType.MAP)
-					elif f.vore('#'): add(TokenType.ACCESSOR, AccessorType.GRID)
-					elif f.vore('@'): add(TokenType.ACCESSOR, AccessorType.ARRAY)
-					elif f.vore('$'): add(TokenType.ACCESSOR, AccessorType.STRUCT)
-					else: add(TokenType.LBRACKET)
+					if   f.vore('|'): add(TKType.ACCESSOR, AccessorType.LIST)
+					elif f.vore('?'): add(TKType.ACCESSOR, AccessorType.MAP)
+					elif f.vore('#'): add(TKType.ACCESSOR, AccessorType.GRID)
+					elif f.vore('@'): add(TKType.ACCESSOR, AccessorType.ARRAY)
+					elif f.vore('$'): add(TKType.ACCESSOR, AccessorType.STRUCT)
+					else: add(TKType.LBRACKET)
 				case ']':
-					add(TokenType.RBRACKET)
+					add(TKType.RBRACKET)
 				case '~':
-					add(TokenType.BIT_NOT)
+					add(TKType.BIT_NOT)
+				case '?':
+					if f.vore('?'):
+						self.inplace_quick(TKType.NULLISH)
+					else:
+						add(TKType.QUESTION)
 				case '&':
 					if f.vore(ch):
-						add(TokenType.LOGIC_AND, False)
+						add(TKType.LOGIC_AND, False)
 					else:
-						self.inplace_quick(TokenType.BIT_AND)
+						self.inplace_quick(TKType.BIT_AND)
 				case '|':
 					if f.vore(ch):
-						add(TokenType.LOGIC_OR, False)
+						add(TKType.LOGIC_OR, False)
 					else:
-						self.inplace_quick(TokenType.BIT_OR)
+						self.inplace_quick(TKType.BIT_OR)
 				case '^':
 					if f.vore(ch):
-						add(TokenType.LOGIC_XOR, False)
+						add(TKType.LOGIC_XOR, False)
 					else:
-						self.inplace_quick(TokenType.BIT_XOR)
+						self.inplace_quick(TKType.BIT_XOR)
 				case '=':
 					if f.vore('='):
-						add(TokenType.EQUALITY)
+						add(TKType.EQUALITY)
 					else:
-						add(TokenType.EQUALS)
+						add(TKType.EQUALS)
 				case '!':
 					if f.vore('='):
-						add(TokenType.INEQUALITY)
+						add(TKType.INEQUALITY)
 					else:
-						add(TokenType.LOGIC_NOT)
+						add(TKType.LOGIC_NOT)
 				case '<':
 					if f.vore('<'):
-						self.inplace_quick(TokenType.BIT_LSHIFT)
+						self.inplace_quick(TKType.BIT_LSHIFT)
 					elif f.vore('='):
-						add(TokenType.LESS_EQUAL)
+						add(TKType.LESS_EQUAL)
 					else:
-						add(TokenType.LESS_THAN)
+						add(TKType.LESS_THAN)
 				case '>':
 					if f.vore('>'):
-						self.inplace_quick(TokenType.BIT_RSHIFT)
+						self.inplace_quick(TKType.BIT_RSHIFT)
 					elif f.vore('='):
-						add(TokenType.GREATER_EQUAL)
+						add(TKType.GREATER_EQUAL)
 					else:
-						add(TokenType.GREATER_THAN)
+						add(TKType.GREATER_THAN)
 				case '+':
 					if f.vore('+'):
-						add(TokenType.INCR)
+						add(TKType.INCR)
 					else:
-						self.inplace_quick(TokenType.PLUS)
+						self.inplace_quick(TKType.PLUS)
 				case '-':
 					if f.vore('-'):
-						add(TokenType.DECR)
+						add(TKType.DECR)
 					else:
-						self.inplace_quick(TokenType.MINUS)
+						self.inplace_quick(TKType.MINUS)
 				case '*':
-					self.inplace_quick(TokenType.MUL)
+					self.inplace_quick(TKType.MUL)
 				case '%':
-					self.inplace_quick(TokenType.MOD)
+					self.inplace_quick(TKType.MOD)
 				case '/':
 					if f.vore('/'):
 						# Single-line comment
@@ -355,19 +453,22 @@ class Tokenizer:
 						com_begin = f.tell()
 						f.skip_until('\n', True)
 						# dont include newline in comment body
-						add(TokenType.COMMENT, f.text[com_begin:f.tell()-1], CommentType.LINE)
+						add(TKType.COMMENT, f.text[com_begin:f.tell() - 1], CommentType.LINE)
 						self.new_line()
 					elif f.vore('*'):
 						# Multi-line comment
 						com_begin = f.tell()
 						self.handle_multiline_comment()
 						# dont include trailing */ in body
-						add(TokenType.COMMENT, f.text[com_begin:f.tell()-2], CommentType.BLOCK)
+						add(TKType.COMMENT, f.text[com_begin:f.tell() - 2], CommentType.BLOCK)
 					else:
-						self.inplace_quick(TokenType.DIV)
+						self.inplace_quick(TKType.DIV)
 				case _ if is_identifier_start(ch):
 					f.rewind()
 					add(*self.handle_identifier())
+				case _ if ch in string.digits:
+					f.rewind()
+					add(*self.handle_number_literal())
 				case _:
 					...
 

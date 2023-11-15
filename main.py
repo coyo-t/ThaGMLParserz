@@ -18,11 +18,12 @@ def to_exec ():
 		# script_name('scr_macro', GMS2PROJ/'grimdawnfdumpforcazey/scripts')
 		# script_name('_debug', FPWGMS2/'FPW_beta_conv/scripts')
 		# FPWGMS2/'__parallel/paramk6/objects/obj_panorama/Draw_0.gml'
-		script_name('script_listener', GMS2PROJ/'mc adiobussy tesst2/scripts')
+		# script_name('script_listener', GMS2PROJ/'mc adiobussy tesst2/scripts')
 		# script_name('player_camera_update', GMS2PROJ/'__old/Popgoes 1 Repainted/scripts')
 		# ASSETS/'multiline_macro_test.gml'
 		# ASSETS/'strings_test.gml'
 		# ASSETS/'comments_test.gml'
+		ASSETS/'number_literal_tests.gml'
 	)
 
 from tokens import *
