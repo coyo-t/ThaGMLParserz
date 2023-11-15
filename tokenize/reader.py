@@ -92,6 +92,9 @@ class Reader:
 	def peek_is (self, pred:str|Predicate):
 		return (pred.__contains__ if isinstance(pred, str) else pred)(self.peek())
 
+	def peek_isnt (self, pred:str|Predicate):
+		return not self.peek_is(pred)
+
 	def skip_while (self, pred:str|Predicate, inclusive=False):
 		"""
 		Skip until `False`

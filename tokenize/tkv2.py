@@ -1,7 +1,8 @@
+import string
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from .reader import Reader
 from .types import TMP_TK
-import string
 
 gml_kinda_ws = ' \t\v\f'
 gml_all_ws = '\r\n'+gml_kinda_ws
@@ -68,6 +69,7 @@ class LiteralType(Enum):
 	STRING  = auto()
 	BOOLEAN = auto()
 	UNDEFINED = auto()
+	FSTRING = auto()
 	SELF   = auto()
 	OTHER  = auto()
 	ALL    = auto()
@@ -130,6 +132,7 @@ class TKType(Enum):
 	COMMENT   = auto()
 	REGION    = auto()
 	ENDREGION = auto()
+	MACRO = auto()
 
 	IDENTIFIER = auto()
 	LITERAL = auto()
@@ -138,62 +141,78 @@ class TKType(Enum):
 	NEWLINE = auto()
 	EOF = auto()
 
+@dataclass
+class MacroData:
+	name: str = ''
+	configuration: str|None = None
+	tokens: list = field(default_factory=list)
+	body_slice: slice = None
+	@property
+	def has_config (self):
+		return self.configuration is not None
+
+@dataclass
+class FStringData:
+	lexeme:    str = ''
+	fixed_str: str = ''
+	sections: list[slice] = field(default_factory=list)
+	section_contents: list[list] = field(default_factory=list)
+
 # TODO: this works, right? TEST IT WHEN YOU HAVE STR TEMPLATES DONE MORON
 def digest_string (s: str):
-	# gurgle glorp glrr uvu
-	class DigestStringError(Exception): pass
-
+	class DigestStringError(Exception): pass # gurgle glorp glrr uvu
 	# this isnt very efficient. -_-
+	# also, technically, the open escape sequence at the end of a string
+	# would be caught by the tokenizer, as it'd cause an unclosed string.
+	# but might as well check it here anyway
 	if (i:=len(s)) == 0:
 		return ''
 	elif i == 1:
 		if s == '\\':
 			raise DigestStringError('Empty escape sequence at end of string!')
 		return s
-	chars = list(s)
-	if chars[-1] == '\\':
-		if chars[-2] != '\\':
+	# i could also call it "Slurry" if that'd squick people out more òvó
+	chyme = list(s)
+	if chyme[-1] == '\\':
+		if chyme[-2] != '\\':
 			raise DigestStringError('Empty escape sequence at end of string!')
-		else:
-			i -= 1
-	simple_seqs = {
-		'r': '\x0D', 'n': '\x0A', 'b': '\x08', 'f': '\x0C',
-		't': '\x09', 'v': '\x0B', 'a': '\x07',
-	}
+		i -= 1 # prevent indigestion later
+	simple_seqs = {'r':'\x0D','n':'\x0A','b':'\x08','f':'\x0C','t':'\x09','v':'\x0B','a':'\x07'}
 	def method_name (limit:int, typeof:str):
 		k = i + 2
 		j = k
-		while (chars[j] in string.hexdigits) and (j - k) < limit: j += 1
-		digits = chars[k:j]
+		while (chyme[j] in string.hexdigits) and (j - k) < limit: j += 1
+		digits = chyme[k:j]
 		if len(digits) < limit:
 			raise DigestStringError(f'Not enough digits for {typeof} escape sequence!')
-		chars[i:j] = chr(int(''.join(digits), 16))
-
+		chyme[i:j] = chr(int(''.join(digits), 16))
+	# Work backwards rather than forwards in the string. A classic trick that
+	# prevents us from having to recalculate any indices or bounds checks
+	# Tee Hee, thanks dad.
 	while (i:=i-1) >= 0:
-		ch = chars[i]
+		ch = chyme[i]
 		if ch != '\\':
 			continue
-		ch = chars[i+1]
+		ch = chyme[i+1]
 		match ch:
 			case '\\' | '"':
-				del chars[i] # the character escaped is the same as the esc seq
+				del chyme[i] # the character escaped is the same as the esc seq
 			case _ if ch in simple_seqs:
-				chars[i:i+2] = simple_seqs[ch]
+				chyme[i:i+2] = simple_seqs[ch]
 			case 'u':
 				method_name(4, 'unicode')
 			case 'x':
 				method_name(2, 'hex')
 			case _ if '0' <= ch <= '7':
-				chars[i:i+2] = chr(int(ch, 8))
+				chyme[i:i+2] = chr(int(ch, 8))
 			case _:
-				raise DigestStringError(f'Unknown string escape sequence \\{ch}!')
-	return ''.join(chars)
-
+				raise DigestStringError(f"Unknown string escape sequence '\\{ch}'!")
+	return ''.join(chyme)
 
 class TokenizeError(Exception): pass
 
 class Tokenizer:
-	def __init__ (self, source:str):
+	def __init__ (self, source:str, do_line_continues=False):
 		"""
 		Assumes input source string has had all windows-style line endings
 		and carriage returns replaced with singular newline characters.
@@ -205,7 +224,7 @@ class Tokenizer:
 		self.line_number = 0
 		self.line_index = 0
 		self.begin = 0
-		self.do_line_continues = False
+		self.do_line_continues = do_line_continues
 
 		self.tokens = []
 
@@ -340,6 +359,40 @@ class Tokenizer:
 			NumberLiteralSrc.FLOAT if is_float else NumberLiteralSrc.INT
 		)
 
+	def handle_macro (self):
+		# assumes the intermediary whitespace has been skipped
+		f = self.f
+		def vore_name ():
+			if f.peek_isnt(is_identifier_start):
+				raise TokenizeError('Unexpected symbol at beginning of macro identifier!')
+			name = f.vore_while(is_identifier)
+			if len(name) == 0:
+				raise TokenizeError('Macro identifier empty!')
+			return name
+		# the syntax is either #macro {name} {tokens}
+		# or                   #macro {config}:{name} {tokens}
+		# This is stupid! I dont know why its like this -_-
+		# idk blame delphi or some shit
+		outm = MacroData()
+		id1 = vore_name()
+		if f.vore(':'):
+			outm.name, outm.configuration = vore_name(), id1
+		else:
+			outm.name, outm.configuration = id1, None
+		def vore (ch:str):
+			if ch == '\n':
+				return True
+			elif ch == '\\':
+				f.skip()
+				if not f.vore('\n'):
+					raise TokenizeError('Expected newline after continuator whack!')
+			return False
+		macro_body_begin = f.tell()
+		body = f.vore_until(vore)
+		f.skip() # ending newline not included in body
+		outm.body_slice = slice(macro_body_begin, f.tell())
+		outm.tokens = Tokenizer(body, True).tokenize()
+		return outm
 
 	def add (self, token, *metadata):
 		# self.tokens.append(token)
@@ -402,7 +455,12 @@ class Tokenizer:
 					elif name == 'endregion':
 						self.region_quick(TKType.ENDREGION)
 					elif name == 'macro':
-						raise NotImplementedError('MACRO')
+						f.skip_while(gml_kinda_ws)
+						if f.peek_is('\n'):
+							raise TokenizeError('Unexpected newline where macro name shouldve been!')
+						print("==== BEGIN MACRO ====")
+						add(TKType.MACRO, self.handle_macro())
+						print("====  END MACRO  ====")
 					else:
 						f.seek(mk_begin)
 						name = f.vore_while(char_is_hex_number).replace('_', '')
