@@ -25,6 +25,7 @@ def mm ():
 		# ASSETS/'multiline_macro_test.gml'
 		# ASSETS/'strings_test.gml'
 	)
+	return
 
 	depth = 0
 	scope_incr = False
@@ -33,24 +34,21 @@ def mm ():
 		match token:
 			case TK() if token.is_special_accessor():
 				scope_incr = True
-			case LBraceToken() | TK.L_BRACKET | TK.L_WHIFFLE:
+			case LBraceToken() | TK.L_BRACKET | TK.L_WHIFFLE | TK.SPECIAL_ACCESSOR:
 				scope_incr = True
 			case RBraceToken() | TK.R_BRACKET | TK.R_WHIFFLE:
 				scope_decr = True
 			case RegionToken():
 				(scope_decr:=True) if token.is_end else (scope_incr:=True)
-
 		depth -= scope_decr
 		ident = '\t' * depth
 		depth += scope_incr
 		scope_incr = scope_decr = False
-
 		match token:
 			case TK() as tk:
 				outs = tk.value
 			case _:
 				outs = token
-
 		print(f'{ident}{outs}')
 	print('----  END  ----')
 

@@ -17,6 +17,10 @@ class InplaceKind(Enum):
 
 	def __str__ (self): return f'{self.value}='
 
+class WordSymbolKind(Enum):
+	SYMBOL = False
+	WORD   = True
+
 class TokenType:
 	pass
 
@@ -55,10 +59,10 @@ class Accessor:
 @dataclass
 class Scope(TokenType):
 	class Kind(Enum):
-		SELF   = ('self',  -1)
-		OTHER  = ('other', -2)
-		ALL    = ('all',   -3)
-		NOONE  = ('noone', -4)
+		SELF  = ('self',  -1)
+		OTHER = ('other', -2)
+		ALL   = ('all',   -3)
+		NOONE = ('noone', -4)
 
 		@property
 		def name (self) -> str:

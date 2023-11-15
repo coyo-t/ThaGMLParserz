@@ -15,6 +15,7 @@ class ParseNumberError(ParseError):
 
 KINDA_WHITESPACE = lambda ch: ch in mth.kinda_gml_whitespace
 
+
 def read_multiline_comment (f: StringReader):
 	depth = 0
 	while True:
@@ -229,10 +230,19 @@ def tokenize (src: str, handle_whack_as_newline=False) -> Tokens:
 	tokens = Tokens()
 	begin = 0
 
+	def take_newl (ch:str):
+		if ch == '\r':
+			if f.vore('\n'):
+				return False
+		elif ch == '\n':
+			return False
+		return True
+
 	def add (tk: TokenType | TK, *metadata):
 		nonlocal tokens
 		tokens += tk
-		print(tk, slice(begin, f.tell()))
+		sl = slice(begin, f.tell())
+		print(f'{tk}:\n\t{sl}\n\t[{', '.join(map(repr,metadata))}]')
 
 	while f.can_read():
 		f.take_while(KINDA_WHITESPACE)
@@ -254,7 +264,7 @@ def tokenize (src: str, handle_whack_as_newline=False) -> Tokens:
 					raise ParseError('Expected newline after backslash continuator!')
 			case '/':
 				if f.vore('/'):
-					add(CommentToken(f.take_while(lambda c: c != '\n', 1), False))
+					add(CommentToken(f.take_while(take_newl, 1), False))
 				elif f.vore('*'):
 					start = f.tell()
 					read_multiline_comment(f)
@@ -293,7 +303,7 @@ def tokenize (src: str, handle_whack_as_newline=False) -> Tokens:
 						add(TK.NULLISH)
 				else:
 					add(TK.QUESTO)
-			case '~': add(TK.BITWISE_NOT)
+			case '~': add(TK.BITWISE_NOT, WordSymbolKind.SYMBOL)
 			case '!':
 				if f.vore('='):
 					add(TK.INEQUALITY)
@@ -304,8 +314,8 @@ def tokenize (src: str, handle_whack_as_newline=False) -> Tokens:
 					add(TK.EQUALITY)
 				else:
 					add(TK.EQUALS)
-			case '{': add(LBraceToken())
-			case '}': add(RBraceToken())
+			case '{': add(LBraceToken(), WordSymbolKind.SYMBOL)
+			case '}': add(RBraceToken(), WordSymbolKind.SYMBOL)
 			case '(': add(TK.L_WHIFFLE)
 			case ')': add(TK.R_WHIFFLE)
 			case '[':
@@ -334,15 +344,15 @@ def tokenize (src: str, handle_whack_as_newline=False) -> Tokens:
 				if f.vore('='): add(InplaceOpToken(InplaceKind.MOD))
 				else:           add(TK.PERCENT)
 			case '&':
-				if   f.vore('&'): add(AndToken(False))
+				if   f.vore('&'): add(AndToken(False), WordSymbolKind.SYMBOL)
 				elif f.vore('='): add(InplaceOpToken(InplaceKind.AND))
 				else: add(TK.BITWISE_AND)
 			case '|':
-				if   f.vore('|'): add(OrToken(False))
+				if   f.vore('|'): add(OrToken(False), WordSymbolKind.SYMBOL)
 				elif f.vore('='): add(InplaceOpToken(InplaceKind.OR))
 				else: add(TK.BITWISE_OR)
 			case '^':
-				if   f.vore('^'): add(XorToken(False))
+				if   f.vore('^'): add(XorToken(False), WordSymbolKind.SYMBOL)
 				elif f.vore('='): add(InplaceOpToken(InplaceKind.XOR))
 				else: add(TK.BITWISE_XOR)
 			case '<':
@@ -391,7 +401,7 @@ def tokenize (src: str, handle_whack_as_newline=False) -> Tokens:
 					f.rewind()
 					name = f.take_while(mth.is_identifier)
 					if name in gml_keywords:
-						if (func:=gml_keywords[name]) is not None:
+						if callable(func:=gml_keywords[name]):
 							add(func(name))
 						else:
 							add(KeywordToken(name))
