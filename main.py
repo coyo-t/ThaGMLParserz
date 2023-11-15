@@ -64,13 +64,14 @@ def mm2 ():
 	source = fname.read_text('utf8').replace('\r\n', '\n').replace('\r', '\n')
 	tokenizer = tkv2.Tokenizer(source)
 
-	try:
-		tokenizer.act()
-	except Exception as e:
-		logging.error(
-			f'{type(e).__name__} when tokenizing source file: {e.args[0]}\n'
-			f'@Line: {tokenizer.line_index+1}, Char: {tokenizer.char_index-1}',
-		)
+	tokenizer.act()
+	# try:
+	# 	tokenizer.act()
+	# except Exception as e:
+	# 	logging.error(
+	# 		f'{type(e).__name__} when tokenizing source file: {e.args[0]}\n'
+	# 		f'@Line: {tokenizer.line_index+1}, Char: {tokenizer.char_index-1}',
+	# 	)
 
 if __name__ == '__main__':
 	mm2()

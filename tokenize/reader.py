@@ -53,6 +53,10 @@ class Reader:
 	def skip (self, count:int=1):
 		self._ptr += count
 
+	def rewind (self):
+		"""Move the cursor back by one"""
+		self._ptr -= 1
+
 	def read (self):
 		ch = self.peek()
 		self.skip()
@@ -81,6 +85,9 @@ class Reader:
 		position up until the end of the string
 		"""
 		return iter(self.read, '')
+
+	def peek_is (self, pred:str|Predicate):
+		return (pred.__contains__ if isinstance(pred, str) else pred)(self.peek())
 
 	def skip_while (self, pred:str|Predicate, inclusive=False):
 		"""
