@@ -11,7 +11,7 @@ def script_name (name:str,root=SCRIPTS):
 
 def to_exec ():
 	return (
-		# script_name('__scr_ai_oldStep')
+		script_name('__scr_ai_oldStep')
 		# script_name('scr_menu_night6')
 		# ASSETS/'draw_rout_cctv.gml'
 		# script_name('scr_lz4', GMS2PROJ/'grimdawnfdumpforcazey/scripts')
@@ -23,7 +23,7 @@ def to_exec ():
 		# ASSETS/'multiline_macro_test.gml'
 		# ASSETS/'strings_test.gml'
 		# ASSETS/'comments_test.gml'
-		ASSETS/'number_literal_tests.gml'
+		# ASSETS/'number_literal_tests.gml'
 	)
 
 from tokens import *

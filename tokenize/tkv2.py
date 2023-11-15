@@ -138,6 +138,58 @@ class TKType(Enum):
 	NEWLINE = auto()
 	EOF = auto()
 
+# TODO: this works, right? TEST IT WHEN YOU HAVE STR TEMPLATES DONE MORON
+def digest_string (s: str):
+	# gurgle glorp glrr uvu
+	class DigestStringError(Exception): pass
+
+	# this isnt very efficient. -_-
+	if (i:=len(s)) == 0:
+		return ''
+	elif i == 1:
+		if s == '\\':
+			raise DigestStringError('Empty escape sequence at end of string!')
+		return s
+	chars = list(s)
+	if chars[-1] == '\\':
+		if chars[-2] != '\\':
+			raise DigestStringError('Empty escape sequence at end of string!')
+		else:
+			i -= 1
+	simple_seqs = {
+		'r': '\x0D', 'n': '\x0A', 'b': '\x08', 'f': '\x0C',
+		't': '\x09', 'v': '\x0B', 'a': '\x07',
+	}
+	def method_name (limit:int, typeof:str):
+		k = i + 2
+		j = k
+		while (chars[j] in string.hexdigits) and (j - k) < limit: j += 1
+		digits = chars[k:j]
+		if len(digits) < limit:
+			raise DigestStringError(f'Not enough digits for {typeof} escape sequence!')
+		chars[i:j] = chr(int(''.join(digits), 16))
+
+	while (i:=i-1) >= 0:
+		ch = chars[i]
+		if ch != '\\':
+			continue
+		ch = chars[i+1]
+		match ch:
+			case '\\' | '"':
+				del chars[i] # the character escaped is the same as the esc seq
+			case _ if ch in simple_seqs:
+				chars[i:i+2] = simple_seqs[ch]
+			case 'u':
+				method_name(4, 'unicode')
+			case 'x':
+				method_name(2, 'hex')
+			case _ if '0' <= ch <= '7':
+				chars[i:i+2] = chr(int(ch, 8))
+			case _:
+				raise DigestStringError(f'Unknown string escape sequence \\{ch}!')
+	return ''.join(chars)
+
+
 class TokenizeError(Exception): pass
 
 class Tokenizer:
@@ -272,9 +324,8 @@ class Tokenizer:
 				raise TokenizeError('Newline in string literal!')
 			elif ch == '':
 				raise TokenizeError('Unclosed string!')
-		print("DONT FORGET!!! DO EXCAPREPEPEPEPEEEEEE SEQUENCES!!!!!")
 		# trailing " already skiped due to the way the loop works
-		return f.text[begin:f.tell()-1]
+		return digest_string(f.text[begin:f.tell()-1])
 
 	def handle_number_literal (self):
 		f = self.f
