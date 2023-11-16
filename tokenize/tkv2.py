@@ -1,8 +1,9 @@
 import string
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from typing import Any
+
 from .reader import Reader
-from .types import TMP_TK
 
 gml_kinda_ws = ' \t\v\f'
 gml_all_ws = '\r\n'+gml_kinda_ws
@@ -141,12 +142,29 @@ class TKType(Enum):
 	NEWLINE = auto()
 	EOF = auto()
 
+	def debug_indent_incr (self):
+		return self in (
+			self.LCURLY,
+			self.LBRACKET,
+			self.LWHIFFLE,
+			self.REGION,
+			self.ACCESSOR,
+		)
+
+	def debug_indent_decr (self):
+		return self in (
+			self.RCURLY,
+			self.RBRACKET,
+			self.RWHIFFLE,
+			self.ENDREGION,
+		)
+
 @dataclass
 class MacroData:
 	name: str = ''
 	configuration: str|None = None
 	tokens: list = field(default_factory=list)
-	body_slice: slice = None
+	lexeme: str = ''
 	@property
 	def has_config (self):
 		return self.configuration is not None
@@ -209,10 +227,91 @@ def digest_string (s: str):
 				raise DigestStringError(f"Unknown string escape sequence '\\{ch}'!")
 	return ''.join(chyme)
 
+# This is a little silly
+identifiers_r_keywords = {
+	'begin': (TKType.LCURLY, DualTokenType.WORD),
+	  'end': (TKType.RCURLY, DualTokenType.WORD),
+	  'div': (TKType.INT_DIV,),
+	  'mod': (TKType.INT_MOD,),
+	  'not': (TKType.LOGIC_NOT, DualTokenType.WORD),
+	  'and': (TKType.LOGIC_AND, DualTokenType.WORD),
+	   'or': (TKType.LOGIC_OR,  DualTokenType.WORD),
+	  'xor': (TKType.LOGIC_XOR, DualTokenType.WORD),
+
+	      'all': (TKType.LITERAL, LiteralType.ALL),
+	     'self': (TKType.LITERAL, LiteralType.SELF),
+	     'true': (TKType.LITERAL, LiteralType.BOOLEAN, True),
+	    'false': (TKType.LITERAL, LiteralType.BOOLEAN, False),
+	    'other': (TKType.LITERAL, LiteralType.OTHER),
+	    'noone': (TKType.LITERAL, LiteralType.NOONE),
+	   'global': (TKType.LITERAL, LiteralType.GLOBAL),
+	'undefined': (TKType.LITERAL, LiteralType.UNDEFINED),
+
+	     'if': (TKType.KEYWORD, KWType.IF),
+	   'then': (TKType.KEYWORD, KWType.THEN),
+	   'else': (TKType.KEYWORD, KWType.ELSE),
+	   'case': (TKType.KEYWORD, KWType.CASE),
+	 'switch': (TKType.KEYWORD, KWType.SWITCH),
+	'default': (TKType.KEYWORD, KWType.DEFAULT),
+
+	      'do': (TKType.KEYWORD, KWType.DO),
+	     'for': (TKType.KEYWORD, KWType.FOR),
+	    'with': (TKType.KEYWORD, KWType.WITH),
+	   'while': (TKType.KEYWORD, KWType.WHILE),
+	   'until': (TKType.KEYWORD, KWType.UNTIL),
+	   'break': (TKType.KEYWORD, KWType.BREAK),
+	  'repeat': (TKType.KEYWORD, KWType.REPEAT),
+	'continue': (TKType.KEYWORD, KWType.CONTINUE),
+
+	        'var': (TKType.KEYWORD, KWType.VAR),
+	       'enum': (TKType.KEYWORD, KWType.ENUM),
+	     'static': (TKType.KEYWORD, KWType.STATIC),
+	   'function': (TKType.KEYWORD, KWType.FUNCTION),
+	  'globalvar': (TKType.KEYWORD, KWType.GLOBALVAR),
+	'constructor': (TKType.KEYWORD, KWType.CONSTRUCTOR),
+
+	  'exit': (TKType.KEYWORD, KWType.EXIT),
+	'return': (TKType.KEYWORD, KWType.RETURN),
+	'delete': (TKType.KEYWORD, KWType.DELETE),
+
+	    'try': (TKType.KEYWORD, KWType.TRY),
+	  'catch': (TKType.KEYWORD, KWType.CATCH),
+	  'throw': (TKType.KEYWORD, KWType.THROW),
+	'finally': (TKType.KEYWORD, KWType.FINALLY),
+}
+
+@dataclass
+class PositionInfo:
+	cursor: int
+	line_number: int
+	line_index: int
+	@property
+	def char_on_line (self):
+		return self.cursor - self.line_index
+	def clone (self):
+		return PositionInfo(self.cursor, self.line_number, self.line_index)
+
+@dataclass
+class Token:
+	type: TKType
+	begin: PositionInfo = None
+	end: PositionInfo = None
+	metadata: tuple[Any] = field(default_factory=tuple)
+
+	def macro_get_metadata (self) -> MacroData:
+		if self.type is not TKType.MACRO:
+			raise AttributeError('Tried to get macro metadata for a non-macro token!')
+		return self.metadata[0]
+
 class TokenizeError(Exception): pass
 
 class Tokenizer:
-	def __init__ (self, source:str, do_line_continues=False):
+	class Gender(Enum):
+		NONE = auto()
+		MACRO = auto()
+		FSTRING = auto()
+
+	def __init__ (self, source:str, gender=Gender.NONE):
 		"""
 		Assumes input source string has had all windows-style line endings
 		and carriage returns replaced with singular newline characters.
@@ -221,17 +320,54 @@ class Tokenizer:
 		"""
 		self.text = source
 		self.f = Reader(self.text)
-		self.line_number = 0
-		self.line_index = 0
-		self.begin = 0
-		self.do_line_continues = do_line_continues
+		self._line_number = 0
+		self._line_index = 0
+		self.begin = PositionInfo(0, 0, 0)
+		self.gender = gender
+		self.tokens: list[Token] = []
+		self.token_stack: list[list[Token]] = []
 
-		self.tokens = []
+	def token_stack_push (self, clear=True):
+		self.token_stack.append(old:=self.tokens)
+		if clear:
+			self.tokens = []
+		else:
+			self.tokens = old.copy()
+		return old
+
+	def token_stack_pop (self):
+		old = self.tokens
+		if len(self.token_stack) == 0:
+			self.tokens = []
+		else:
+			self.tokens = self.token_stack.pop()
+		return old
+
+	@property
+	def position_info (self):
+		""":returns: A copy"""
+		return PositionInfo(self.f.tell(), self.line_number, self.line_index)
+
+	@property
+	def line_number (self):
+		return self._line_number
+
+	@property
+	def line_index (self):
+		return self._line_index
+
+	@line_number.setter
+	def line_number (self, value):
+		self._line_number = value
+
+	@line_index.setter
+	def line_index (self, value):
+		self._line_index = value
 
 	@property
 	def char_index (self):
 		""":return: The current character index in the current line"""
-		return self.f.tell() - self.line_index
+		return self.f.tell() - self._line_index
 
 	def handle_multiline_comment (self):
 		"""Assumes the beginning /* has been skipped"""
@@ -260,70 +396,23 @@ class Tokenizer:
 
 	def handle_identifier (self):
 		name = self.f.vore_while(is_identifier)
-		# TODO: This is very silly
-		match name:
-			case 'begin': return TKType.LCURLY, DualTokenType.WORD
-			case   'end': return TKType.RCURLY, DualTokenType.WORD
-			case   'div': return (TKType.INT_DIV,)
-			case   'mod': return (TKType.INT_MOD,)
-			case   'not': return TKType.LOGIC_NOT, DualTokenType.WORD
-			case   'and': return TKType.LOGIC_AND, DualTokenType.WORD
-			case    'or': return TKType.LOGIC_OR,  DualTokenType.WORD
-			case   'xor': return TKType.LOGIC_XOR, DualTokenType.WORD
-
-			case       'all': return TKType.LITERAL, LiteralType.ALL
-			case      'self': return TKType.LITERAL, LiteralType.SELF
-			case      'true': return TKType.LITERAL, LiteralType.BOOLEAN, True
-			case     'false': return TKType.LITERAL, LiteralType.BOOLEAN, False
-			case     'other': return TKType.LITERAL, LiteralType.OTHER
-			case     'noone': return TKType.LITERAL, LiteralType.NOONE
-			case    'global': return TKType.LITERAL, LiteralType.GLOBAL
-			case 'undefined': return TKType.LITERAL, LiteralType.UNDEFINED
-
-			case      'if': return TKType.KEYWORD, KWType.IF
-			case    'then': return TKType.KEYWORD, KWType.THEN
-			case    'else': return TKType.KEYWORD, KWType.ELSE
-			case    'case': return TKType.KEYWORD, KWType.CASE
-			case  'switch': return TKType.KEYWORD, KWType.SWITCH
-			case 'default': return TKType.KEYWORD, KWType.DEFAULT
-
-			case       'do': return TKType.KEYWORD, KWType.DO
-			case      'for': return TKType.KEYWORD, KWType.FOR
-			case     'with': return TKType.KEYWORD, KWType.WITH
-			case    'while': return TKType.KEYWORD, KWType.WHILE
-			case    'until': return TKType.KEYWORD, KWType.UNTIL
-			case    'break': return TKType.KEYWORD, KWType.BREAK
-			case   'repeat': return TKType.KEYWORD, KWType.REPEAT
-			case 'continue': return TKType.KEYWORD, KWType.CONTINUE
-
-			case         'var': return TKType.KEYWORD, KWType.VAR
-			case        'enum': return TKType.KEYWORD, KWType.ENUM
-			case      'static': return TKType.KEYWORD, KWType.STATIC
-			case    'function': return TKType.KEYWORD, KWType.FUNCTION
-			case   'globalvar': return TKType.KEYWORD, KWType.GLOBALVAR
-			case 'constructor': return TKType.KEYWORD, KWType.CONSTRUCTOR
-
-			case   'exit': return TKType.KEYWORD, KWType.EXIT
-			case 'return': return TKType.KEYWORD, KWType.RETURN
-			case 'delete': return TKType.KEYWORD, KWType.DELETE
-
-			case     'try': return TKType.KEYWORD, KWType.TRY
-			case   'catch': return TKType.KEYWORD, KWType.CATCH
-			case   'throw': return TKType.KEYWORD, KWType.THROW
-			case 'finally': return TKType.KEYWORD, KWType.FINALLY
-
+		if name in identifiers_r_keywords:
+			return identifiers_r_keywords[name]
 		return TKType.IDENTIFIER, name
 
 	def handle_multiline_string_literal (self):
 		"""Assumes beginning @" was vored"""
 		# cant just use `f.vore_until`, have to check for EOF
-		# and report back an error that the string is unclosed
+		# and report back an error that the string is unclosed,
+		# as well as counting new lines
 		f = self.f
 		begin = f.tell()
 		while True:
 			ch = f.read()
 			if ch == '':
 				raise TokenizeError('Unclosed @string!')
+			elif ch == '\n':
+				self.new_line()
 			elif ch == '"':
 				break
 		# trailing " already skiped due to the way the loop works
@@ -359,6 +448,7 @@ class Tokenizer:
 			NumberLiteralSrc.FLOAT if is_float else NumberLiteralSrc.INT
 		)
 
+	# TODO: not here but later there needs to be a check for recursive macros
 	def handle_macro (self):
 		# assumes the intermediary whitespace has been skipped
 		f = self.f
@@ -379,33 +469,51 @@ class Tokenizer:
 			outm.name, outm.configuration = vore_name(), id1
 		else:
 			outm.name, outm.configuration = id1, None
-		def vore (ch:str):
-			if ch == '\n':
-				return True
-			elif ch == '\\':
-				f.skip()
-				if not f.vore('\n'):
-					raise TokenizeError('Expected newline after continuator whack!')
-			return False
-		macro_body_begin = f.tell()
-		body = f.vore_until(vore)
-		f.skip() # ending newline not included in body
-		outm.body_slice = slice(macro_body_begin, f.tell())
-		outm.tokens = Tokenizer(body, True).tokenize()
+
+		mdatbegin = f.tell()
+		pev = (self.gender, self.begin)
+		self.gender = self.Gender.MACRO
+		self.token_stack_push()
+		outm.tokens = self.tokenize()
+		self.token_stack_pop()
+		self.gender, self.begin = pev
+		outm.lexeme = f.text[mdatbegin:f.tell()]
 		return outm
 
-	def add (self, token, *metadata):
-		# self.tokens.append(token)
-		nn = token.name if isinstance(token, TKType) else str(token)
-		sl = slice(self.begin, self.f.tell())
-		print(f'{nn} {metadata}')
+		# def vore (ch:str):
+		# 	if ch == '\n':
+		# 		self.new_line()
+		# 		return True
+		# 	elif ch == '\\':
+		# 		f.skip()
+		# 		if not f.vore('\n'):
+		# 			raise TokenizeError('Expected newline after continuator whack!')
+		# 		self.new_line()
+		# 	return False
+		#
+		# #storing the line position stuff like this is maybe kinda silly
+		# macro_body_begin = f.tell()
+		# macro_line_pos = (self.line_index, self.line_number)
+		# body = f.vore_until(vore)
+		# f.skip() # ending newline not included in body
+		# outm.body_slice = slice(macro_body_begin, f.tell())
+		# delegate_tk = Tokenizer(body, do_line_continues=True,rules=self.Rules.MACRO)
+		# outm.tokens = delegate_tk.tokenize()
+		# return outm
 
 	def new_line (self):
 		"""
 		Assumes the cursor is after the newline char
 		"""
-		self.line_index = self.f.tell()
-		self.line_number += 1
+		self._line_index = self.f.tell()
+		self._line_number += 1
+
+	def add (self, token:TKType, *metadata):
+		# self.tokens.append(token)
+		# nn = token.name if isinstance(token, TKType) else str(token)
+		# print(f'{self.line_number}: {nn} {metadata}')
+		tk = Token(token, self.begin, self.position_info, metadata)
+		self.tokens.append(tk)
 
 	def inplace_quick (self, cbasetype: TKType):
 		if self.f.vore('='):
@@ -417,24 +525,33 @@ class Tokenizer:
 		self.f.skip_until('\n', True)
 		# dont include newline in comment body
 		self.add(cbasetype, self.f.text[com_begin:self.f.tell() - 1])
+		self.new_line()
+
+	def newline_quick (self, cbasetype: TKType, *metadata):
+		self.add(cbasetype, *metadata)
+		self.new_line()
 
 	def tokenize (self):
 		f = self.f
 		add = self.add
+		depth = 0
 		while f.has_remaining:
 			f.skip_while(gml_kinda_ws)
-			self.begin = f.tell()
+			self.begin = self.position_info
 			ch = f.read()
 			match ch:
 				case '\n':
-					self.new_line(); add(TKType.NEWLINE)
+					if self.gender is self.Gender.MACRO:
+						break
+					self.newline_quick(TKType.NEWLINE)
 				case '\\':
-					if not self.do_line_continues:
-						raise TokenizeError('Unexpected whack (\\) in stream!')
-					if f.vore('\n'):
-						self.new_line(); add(TKType.NEWLINE)
+					if self.gender is self.Gender.MACRO:
+						if f.vore('\n'):
+							self.newline_quick(TKType.NEWLINE)
+						else:
+							raise TokenizeError('Expected newline after continuator (\\)!')
 					else:
-						raise TokenizeError('Expected newline after continuator (\\)!')
+						raise TokenizeError('Unexpected whack (\\) in stream!')
 				case '"':
 					add(TKType.LITERAL, LiteralType.STRING, self.handle_string_literal())
 				case '@' if f.vore('"'):
@@ -455,12 +572,13 @@ class Tokenizer:
 					elif name == 'endregion':
 						self.region_quick(TKType.ENDREGION)
 					elif name == 'macro':
+						if self.gender is self.Gender.MACRO:
+							raise TokenizeError('Cant create a macro inside a macro!')
 						f.skip_while(gml_kinda_ws)
 						if f.peek_is('\n'):
 							raise TokenizeError('Unexpected newline where macro name shouldve been!')
-						print("==== BEGIN MACRO ====")
 						add(TKType.MACRO, self.handle_macro())
-						print("====  END MACRO  ====")
+						self.new_line()
 					else:
 						f.seek(mk_begin)
 						name = f.vore_while(char_is_hex_number).replace('_', '')
@@ -562,8 +680,8 @@ class Tokenizer:
 						com_begin = f.tell()
 						f.skip_until('\n', True)
 						# dont include newline in comment body
-						add(TKType.COMMENT, f.text[com_begin:f.tell() - 1], CommentType.LINE)
-						self.new_line()
+						self.newline_quick(TKType.COMMENT, f.text[com_begin:f.tell() - 1], CommentType.LINE)
+						if self.gender is self.Gender.MACRO: break
 					elif f.vore('*'):
 						# Multi-line comment
 						com_begin = f.tell()
@@ -580,7 +698,8 @@ class Tokenizer:
 					add(*self.handle_number_literal())
 				case _:
 					...
+		return self.tokens
 
 	def act (self):
-		self.tokenize()
+		return self.tokenize()
 

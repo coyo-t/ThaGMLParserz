@@ -46,9 +46,12 @@ class Reader:
 		self._ptr = 0
 
 	def peek_at (self, index:int):
+		# this is formatted weirdly, i might want to do "on encounter char" callback
 		if 0 <= index < len(self._str):
-			return self._str[index]
-		return ''
+			ch = self._str[index]
+		else:
+			ch = ''
+		return ch
 
 	def peek (self, offset:int=0):
 		return self.peek_at(self._ptr + offset)
