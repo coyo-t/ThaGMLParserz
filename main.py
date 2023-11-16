@@ -2,6 +2,7 @@ from pathlib import Path
 import logging
 
 ASSETS  = Path('./assets')
+DEGEN_CASES = ASSETS/'degenerate cases'
 FPWGMS2 = Path('D:/_projects/parallel2shit/gml')
 SCRIPTS = FPWGMS2/'__parallel/fnaf1 recreation/scripts'
 GMS2PROJ = Path('D:/_projects/xGamemakerStudio2')
@@ -13,17 +14,22 @@ def to_exec ():
 	return (
 		# script_name('__scr_ai_oldStep')
 		# script_name('scr_menu_night6')
-		# ASSETS/'draw_rout_cctv.gml'
 		# script_name('scr_lz4', GMS2PROJ/'grimdawnfdumpforcazey/scripts')
 		# script_name('scr_macro', GMS2PROJ/'grimdawnfdumpforcazey/scripts')
 		# script_name('_debug', FPWGMS2/'FPW_beta_conv/scripts')
-		# FPWGMS2/'__parallel/paramk6/objects/obj_panorama/Draw_0.gml'
 		# script_name('script_listener', GMS2PROJ/'mc adiobussy tesst2/scripts')
-		script_name('player_camera_update', GMS2PROJ/'__old/Popgoes 1 Repainted/scripts')
+		# script_name('player_camera_update', GMS2PROJ/'__old/Popgoes 1 Repainted/scripts')
+
+		GMS2PROJ/'QoI THing/objects/Object1/Create_0.gml'
+		# FPWGMS2/'__parallel/paramk6/objects/obj_panorama/Draw_0.gml'
+
+		# ASSETS/'draw_rout_cctv.gml'
 		# ASSETS/'multiline_macro_test.gml'
 		# ASSETS/'strings_test.gml'
 		# ASSETS/'comments_test.gml'
 		# ASSETS/'number_literal_tests.gml'
+
+		# DEGEN_CASES/'macro in macro.gml'
 	)
 
 def mm2 ():

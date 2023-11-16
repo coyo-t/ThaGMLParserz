@@ -176,6 +176,44 @@ class FStringData:
 	sections: list[slice] = field(default_factory=list)
 	section_contents: list[list] = field(default_factory=list)
 
+@dataclass
+class LiteralData:
+	literal_type: LiteralType
+
+@dataclass
+class NumberLiteralData(LiteralData):
+	value: float
+	number_src: NumberLiteralSrc
+	@classmethod
+	def create (cls, value: float, src: NumberLiteralSrc):
+		return cls(LiteralType.NUMBER, value, src)
+	@classmethod
+	def create_hex (cls, value: float):
+		return cls.create(value, NumberLiteralSrc.HEX)
+	@classmethod
+	def create_bin (cls, value: float):
+		return cls.create(value, NumberLiteralSrc.BIN)
+	def __str__ (self):
+		match self.number_src:
+			case NumberLiteralSrc.HEX:
+				return f'0x{int(self.value):X}'
+			case NumberLiteralSrc.BIN:
+				return f'0b{int(self.value):B}'
+			case NumberLiteralSrc.COLOUR:
+				return f'#{int(self.value):X}'
+			case NumberLiteralSrc.INT:
+				return f'{int(self.value)}'
+			case NumberLiteralSrc.FLOAT:
+				return f'{self.value:.4f}'
+		raise ValueError(f'Incorrect number source {self.number_src}')
+
+@dataclass
+class StringLiteralData(LiteralData):
+	text: str
+	@classmethod
+	def create (cls, text: str):
+		return cls(LiteralType.STRING, text)
+
 # TODO: this works, right? TEST IT WHEN YOU HAVE STR TEMPLATES DONE MORON
 def digest_string (s: str):
 	class DigestStringError(Exception): pass # gurgle glorp glrr uvu
@@ -356,14 +394,6 @@ class Tokenizer:
 	def line_index (self):
 		return self._line_index
 
-	@line_number.setter
-	def line_number (self, value):
-		self._line_number = value
-
-	@line_index.setter
-	def line_index (self, value):
-		self._line_index = value
-
 	@property
 	def char_index (self):
 		""":return: The current character index in the current line"""
@@ -443,9 +473,10 @@ class Tokenizer:
 		f.skip_while(is_number_lit)
 		return (
 			TKType.LITERAL,
-			LiteralType.NUMBER,
-			(float if is_float else int)(f.substr_from(start)),
-			NumberLiteralSrc.FLOAT if is_float else NumberLiteralSrc.INT
+			NumberLiteralData.create(
+				(float if is_float else int)(f.substr_from(start)),
+				NumberLiteralSrc.FLOAT if is_float else NumberLiteralSrc.INT
+			),
 		)
 
 	# TODO: not here but later there needs to be a check for recursive macros
@@ -479,27 +510,6 @@ class Tokenizer:
 		self.gender, self.begin = pev
 		outm.lexeme = f.text[mdatbegin:f.tell()]
 		return outm
-
-		# def vore (ch:str):
-		# 	if ch == '\n':
-		# 		self.new_line()
-		# 		return True
-		# 	elif ch == '\\':
-		# 		f.skip()
-		# 		if not f.vore('\n'):
-		# 			raise TokenizeError('Expected newline after continuator whack!')
-		# 		self.new_line()
-		# 	return False
-		#
-		# #storing the line position stuff like this is maybe kinda silly
-		# macro_body_begin = f.tell()
-		# macro_line_pos = (self.line_index, self.line_number)
-		# body = f.vore_until(vore)
-		# f.skip() # ending newline not included in body
-		# outm.body_slice = slice(macro_body_begin, f.tell())
-		# delegate_tk = Tokenizer(body, do_line_continues=True,rules=self.Rules.MACRO)
-		# outm.tokens = delegate_tk.tokenize()
-		# return outm
 
 	def new_line (self):
 		"""
@@ -553,17 +563,17 @@ class Tokenizer:
 					else:
 						raise TokenizeError('Unexpected whack (\\) in stream!')
 				case '"':
-					add(TKType.LITERAL, LiteralType.STRING, self.handle_string_literal())
+					add(TKType.LITERAL, StringLiteralData.create(self.handle_string_literal()))
 				case '@' if f.vore('"'):
-					add(TKType.LITERAL, LiteralType.STRING, self.handle_multiline_string_literal())
+					add(TKType.LITERAL, StringLiteralData.create(self.handle_multiline_string_literal()))
 				case '$' if f.vore('"'):
 					raise NotImplementedError('String template')
 				case '$' if f.peek_is(char_is_hex_number):
-					add(TKType.LITERAL, LiteralType.NUMBER, self.handle_hexadecimal_literal(), NumberLiteralSrc.HEX)
+					add(TKType.LITERAL, NumberLiteralData.create_hex(self.handle_hexadecimal_literal()))
 				case '0' if f.vore('xX'):
-					add(TKType.LITERAL, LiteralType.NUMBER, self.handle_hexadecimal_literal(), NumberLiteralSrc.HEX)
+					add(TKType.LITERAL, NumberLiteralData.create_hex(self.handle_hexadecimal_literal()))
 				case '0' if f.vore('bB'):
-					add(TKType.LITERAL, LiteralType.NUMBER, self.handle_binary_literal(), NumberLiteralSrc.BIN)
+					add(TKType.LITERAL, NumberLiteralData.create_bin(self.handle_binary_literal()))
 				case '#':
 					mk_begin = f.tell()
 					name = f.vore_while(is_identifier)
@@ -588,7 +598,7 @@ class Tokenizer:
 							raise TokenizeError(f'Too many digits for colour constant {name}!')
 						col = int(name, 16)
 						col = ((col>>16)&0xFF)|(col&0xFF00)|((col&0xFF)<<16)
-						add(TKType.LITERAL, LiteralType.NUMBER, col, NumberLiteralSrc.COLOUR)
+						add(TKType.LITERAL, NumberLiteralData.create(col, NumberLiteralSrc.COLOUR))
 				case ',': add(TKType.COMMA)
 				case ';': add(TKType.SEMICOLON)
 				case ':': add(TKType.COLON)
