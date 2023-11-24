@@ -1,5 +1,4 @@
 from pathlib import Path
-import logging
 
 ASSETS  = Path('./assets')
 DEGEN_CASES = ASSETS/'degenerate cases'
@@ -20,10 +19,10 @@ def to_exec ():
 		# script_name('script_listener', GMS2PROJ/'mc adiobussy tesst2/scripts')
 		# script_name('player_camera_update', GMS2PROJ/'__old/Popgoes 1 Repainted/scripts')
 
-		GMS2PROJ/'QoI THing/objects/Object1/Create_0.gml'
+		# GMS2PROJ/'QoI THing/objects/Object1/Create_0.gml'
 		# FPWGMS2/'__parallel/paramk6/objects/obj_panorama/Draw_0.gml'
 
-		# ASSETS/'draw_rout_cctv.gml'
+		ASSETS/'draw_rout_cctv.gml'
 		# ASSETS/'multiline_macro_test.gml'
 		# ASSETS/'strings_test.gml'
 		# ASSETS/'comments_test.gml'
@@ -33,6 +32,7 @@ def to_exec ():
 	)
 
 def mm2 ():
+	import logging
 	from tokenize import tkv2
 	fname = to_exec()
 	print(f'Tokenizing "{fname}"')
@@ -44,17 +44,20 @@ def mm2 ():
 	def fuckfuckfuck (tk: list[tkv2.Token]):
 		nonlocal depth
 		for token in tk:
-			if token.type.debug_indent_decr(): depth = max(depth - 1, 0)
-			print(f'{'\t' * depth}{token}')
-			if token.type.debug_indent_incr(): depth += 1
+			if token.type.debug_indent_decr():
+				depth = max(depth - 1, 0)
+			indent = '\t' * depth
+			print(f'{indent}{token.begin.line_number:04d} {token}')
+			if token.type.debug_indent_incr():
+				depth += 1
 			if token.type is tkv2.TKType.MACRO:
-				print('==== BEGIN MACRO ====')
+				print(f'{indent}==== BEGIN MACRO ====')
 				meta = token.macro_get_metadata()
 				print(repr(meta.lexeme))
 				depth += 1
 				fuckfuckfuck(meta.tokens)
 				depth -= 1
-				print('====  END MACRO  ====')
+				print(f'{indent}====  END MACRO  ====')
 
 	fuckfuckfuck(tokens)
 
@@ -66,37 +69,6 @@ def mm2 ():
 	# 		f'@Line: {tokenizer.line_index+1}, Char: {tokenizer.char_index-1}',
 	# 	)
 
-# from tokens import *
-# import tokenizer
-# def mm ():
-# 	print('---- BEGIN ----')
-# 	result = tokenizer.main(to_exec())
-# 	return
-#
-# 	depth = 0
-# 	scope_incr = False
-# 	scope_decr = False
-# 	for token in result:
-# 		match token:
-# 			case TK() if token.is_special_accessor():
-# 				scope_incr = True
-# 			case LBraceToken() | TK.L_BRACKET | TK.L_WHIFFLE | TK.SPECIAL_ACCESSOR:
-# 				scope_incr = True
-# 			case RBraceToken() | TK.R_BRACKET | TK.R_WHIFFLE:
-# 				scope_decr = True
-# 			case RegionToken():
-# 				(scope_decr:=True) if token.is_end else (scope_incr:=True)
-# 		depth -= scope_decr
-# 		ident = '\t' * depth
-# 		depth += scope_incr
-# 		scope_incr = scope_decr = False
-# 		match token:
-# 			case TK() as tk:
-# 				outs = tk.value
-# 			case _:
-# 				outs = token
-# 		print(f'{ident}{outs}')
-# 	print('----  END  ----')
 
 if __name__ == '__main__':
 	mm2()

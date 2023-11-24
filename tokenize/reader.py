@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import TypeAlias, Callable
+import itertools
 
 Predicate: TypeAlias = Callable[[str], bool]
 
@@ -68,6 +69,16 @@ class Reader:
 		self.skip()
 		return ch
 
+	def v2re (self, seq: str):
+		"""
+		Checks a sequence of characters. Only advances if all pass.
+		This is silly
+		"""
+		if all(self.peek(i) == ch for i, ch in enumerate(seq)):
+			self.skip(len(seq))
+			return True
+		return False
+
 	def vore (self, pred: str|Predicate):
 		"""
 		Advance the cursor if the current char matches any chars in the input string,
@@ -90,13 +101,20 @@ class Reader:
 		Return characters from the current cursor
 		position up until the end of the string
 		"""
-		return iter(self.read, '')
+		# return iter(self.read, '')
+		return self.iter()
 
-	def peek_is (self, pred:str|Predicate):
-		return (pred.__contains__ if isinstance(pred, str) else pred)(self.peek())
+	def peek_is (self, pred:str|Predicate, offset=0):
+		return (self._digest_predicate(pred))(self.peek(offset))
 
-	def peek_isnt (self, pred:str|Predicate):
-		return not self.peek_is(pred)
+	def peek_isnt (self, pred:str|Predicate, offset=0):
+		return not self.peek_is(pred, offset)
+
+	@staticmethod
+	def _digest_predicate(pred:str|Predicate)->Predicate:
+		if isinstance(pred,str):
+			return pred.__contains__
+		return pred
 
 	def skip_while (self, pred:str|Predicate, inclusive=False):
 		"""
@@ -105,7 +123,7 @@ class Reader:
 		that contains the characters to continue skipping on
 		:arg inclusive: Also skip the character that stopped the loop if `True`
 		"""
-		predicate = pred.__contains__ if isinstance(pred, str) else pred
+		predicate = self._digest_predicate(pred)
 		while predicate(self.peek()) and self.has_remaining:
 			self.skip()
 		if inclusive: self.skip()
@@ -149,6 +167,14 @@ class Reader:
 		begin = self.cursor
 		self.skip_until(pred, inclusive=inclusive)
 		return self._str[begin:self.cursor]
+
+	def iter (self):
+		# return (self._str[i] for i in range(self.cursor, len(self)))
+		while (ch:=self.read()) != '':
+			yield ch
+
+	def iter_while (self, pred:str|Predicate):
+		return itertools.takewhile(self._digest_predicate(pred), self)
 
 	def substr_from (self, substr_begin: int):
 		"""

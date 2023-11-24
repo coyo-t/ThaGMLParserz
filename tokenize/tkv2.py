@@ -36,6 +36,18 @@ class AccessorType(Enum):
 	ARRAY  = ('@',)
 	STRUCT = ('$',)
 
+	# Undocumenteds (act as normal array access, doesnt
+	# syntax highlight correctly, *does* compile fine)
+	U8     = ('B:',)
+	S8     = ('b:',)
+	U16    = ('X:',)
+	S16    = ('x:',)
+	U32    = ('I:',)
+	S32    = ('i:',)
+	F32    = ('f:',)
+	F64    = ('d:',)
+
+
 class KWType(Enum):
 	IF = auto()
 	THEN = auto()
@@ -213,6 +225,14 @@ class StringLiteralData(LiteralData):
 	@classmethod
 	def create (cls, text: str):
 		return cls(LiteralType.STRING, text)
+
+@dataclass
+class CommentData:
+	type: CommentType
+	text: str
+	@classmethod
+	def create (cls, text:str, is_multiline=False):
+		return cls(CommentType.BLOCK if is_multiline else CommentType.LINE, text)
 
 # TODO: this works, right? TEST IT WHEN YOU HAVE STR TEMPLATES DONE MORON
 def digest_string (s: str):
@@ -402,6 +422,7 @@ class Tokenizer:
 	def handle_multiline_comment (self):
 		"""Assumes the beginning /* has been skipped"""
 		f = self.f
+		depth = 0
 		while True:
 			ch = f.read()
 			match ch:
@@ -410,15 +431,20 @@ class Tokenizer:
 				case '\n':
 					self.new_line()
 				case '/' if f.vore('*'):
-					# I don't particuarly like recursion but whatever
-					# this should just incr & decr a depth count
-					self.handle_multiline_comment()
+					depth += 1
 				case '*' if f.vore('/'):
-					return
+					if depth == 0:
+						return
+					depth -= 1
 
 	def handle_binary_literal (self):
-		digits = self.f.vore_while('_01').replace('_', '')
-		return int(digits, 2)
+		# digits = self.f.vore_while('_01').replace('_', '')
+		# return int(digits, 2)
+		value = 0
+		for i, ch in enumerate(self.f.iter_while('_01')):
+			if ch == '1':
+				value |= 1 << i
+		return value
 
 	def handle_hexadecimal_literal (self):
 		digits = self.f.vore_while(char_is_hex_number).replace('_', '')
@@ -430,7 +456,7 @@ class Tokenizer:
 			return identifiers_r_keywords[name]
 		return TKType.IDENTIFIER, name
 
-	def handle_multiline_string_literal (self):
+	def handle_multiline_string_literal (self, matching_kind='"'):
 		"""Assumes beginning @" was vored"""
 		# cant just use `f.vore_until`, have to check for EOF
 		# and report back an error that the string is unclosed,
@@ -443,18 +469,18 @@ class Tokenizer:
 				raise TokenizeError('Unclosed @string!')
 			elif ch == '\n':
 				self.new_line()
-			elif ch == '"':
+			elif ch == matching_kind:
 				break
 		# trailing " already skiped due to the way the loop works
 		return f.text[begin:f.tell()-1]
 
-	def handle_string_literal (self):
+	def handle_string_literal (self, matching='"'):
 		"""Assumes beginning " was vored"""
 		f = self.f
 		begin = f.tell()
 		while True:
 			ch = f.read()
-			if ch == '"':
+			if ch == matching:
 				if f.peek(-1) == '\\':
 					continue
 				break
@@ -493,7 +519,7 @@ class Tokenizer:
 		# the syntax is either #macro {name} {tokens}
 		# or                   #macro {config}:{name} {tokens}
 		# This is stupid! I dont know why its like this -_-
-		# idk blame delphi or some shit
+		# But its on purpose, i know that
 		outm = MacroData()
 		id1 = vore_name()
 		if f.vore(':'):
@@ -534,7 +560,7 @@ class Tokenizer:
 		com_begin = self.f.tell()
 		self.f.skip_until('\n', True)
 		# dont include newline in comment body
-		self.add(cbasetype, self.f.text[com_begin:self.f.tell() - 1])
+		self.add(cbasetype, CommentData.create(self.f.text[com_begin:self.f.tell() - 1]))
 		self.new_line()
 
 	def newline_quick (self, cbasetype: TKType, *metadata):
@@ -566,6 +592,8 @@ class Tokenizer:
 					add(TKType.LITERAL, StringLiteralData.create(self.handle_string_literal()))
 				case '@' if f.vore('"'):
 					add(TKType.LITERAL, StringLiteralData.create(self.handle_multiline_string_literal()))
+				case '@' if f.vore("'"):
+					add(TKType.LITERAL, StringLiteralData.create(self.handle_multiline_string_literal("'")))
 				case '$' if f.vore('"'):
 					raise NotImplementedError('String template')
 				case '$' if f.peek_is(char_is_hex_number):
@@ -620,6 +648,16 @@ class Tokenizer:
 					elif f.vore('@'): add(TKType.ACCESSOR, AccessorType.ARRAY)
 					elif f.vore('$'): add(TKType.ACCESSOR, AccessorType.STRUCT)
 					else: add(TKType.LBRACKET)
+				# these are silly v_v but we need to
+				# fallthrough to identifiers if they dont pass
+				case '[' if f.v2re('B:'): add(TKType.ACCESSOR, AccessorType.U8)
+				case '[' if f.v2re('b:'): add(TKType.ACCESSOR, AccessorType.S8)
+				case '[' if f.v2re('X:'): add(TKType.ACCESSOR, AccessorType.U16)
+				case '[' if f.v2re('x:'): add(TKType.ACCESSOR, AccessorType.S16)
+				case '[' if f.v2re('I:'): add(TKType.ACCESSOR, AccessorType.U32)
+				case '[' if f.v2re('i:'): add(TKType.ACCESSOR, AccessorType.S32)
+				case '[' if f.v2re('f:'): add(TKType.ACCESSOR, AccessorType.F32)
+				case '[' if f.v2re('d:'): add(TKType.ACCESSOR, AccessorType.F64)
 				case ']':
 					add(TKType.RBRACKET)
 				case '~':
@@ -659,6 +697,8 @@ class Tokenizer:
 						self.inplace_quick(TKType.BIT_LSHIFT)
 					elif f.vore('='):
 						add(TKType.LESS_EQUAL)
+					elif f.vore('>'):
+						add(TKType.INEQUALITY) # apparently gml supports `<>` for `!=`. Undocumented.
 					else:
 						add(TKType.LESS_THAN)
 				case '>':
@@ -690,14 +730,14 @@ class Tokenizer:
 						com_begin = f.tell()
 						f.skip_until('\n', True)
 						# dont include newline in comment body
-						self.newline_quick(TKType.COMMENT, f.text[com_begin:f.tell() - 1], CommentType.LINE)
+						self.newline_quick(TKType.COMMENT, CommentData.create(f.text[com_begin:f.tell() - 1]))
 						if self.gender is self.Gender.MACRO: break
 					elif f.vore('*'):
 						# Multi-line comment
 						com_begin = f.tell()
 						self.handle_multiline_comment()
 						# dont include trailing */ in body
-						add(TKType.COMMENT, f.text[com_begin:f.tell() - 2], CommentType.BLOCK)
+						add(TKType.COMMENT, CommentData.create(f.text[com_begin:f.tell() - 2], True))
 					else:
 						self.inplace_quick(TKType.DIV)
 				case _ if is_identifier_start(ch):
