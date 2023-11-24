@@ -438,13 +438,7 @@ class Tokenizer:
 					depth -= 1
 
 	def handle_binary_literal (self):
-		# digits = self.f.vore_while('_01').replace('_', '')
-		# return int(digits, 2)
-		value = 0
-		for i, ch in enumerate(self.f.iter_while('_01')):
-			if ch == '1':
-				value |= 1 << i
-		return value
+		return int(self.f.vore_while('_01').replace('_', ''), 2)
 
 	def handle_hexadecimal_literal (self):
 		digits = self.f.vore_while(char_is_hex_number).replace('_', '')
