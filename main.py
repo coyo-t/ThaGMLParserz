@@ -22,9 +22,9 @@ def to_exec ():
 		# GMS2PROJ/'QoI THing/objects/Object1/Create_0.gml'
 		# FPWGMS2/'__parallel/paramk6/objects/obj_panorama/Draw_0.gml'
 
-		ASSETS/'draw_rout_cctv.gml'
+		# ASSETS/'draw_rout_cctv.gml'
 		# ASSETS/'multiline_macro_test.gml'
-		# ASSETS/'strings_test.gml'
+		ASSETS/'strings_test.gml'
 		# ASSETS/'comments_test.gml'
 		# ASSETS/'number_literal_tests.gml'
 
@@ -33,7 +33,7 @@ def to_exec ():
 
 def mm2 ():
 	import logging
-	from tokenize import tkv2
+	from coyote_tokenize import tkv2
 	fname = to_exec()
 	print(f'Tokenizing "{fname}"')
 	source = fname.read_text('utf8').replace('\r\n', '\n').replace('\r', '\n')
@@ -47,7 +47,7 @@ def mm2 ():
 			if token.type.debug_indent_decr():
 				depth = max(depth - 1, 0)
 			indent = '\t' * depth
-			print(f'{indent}{token.begin.line_number:04d} {token}')
+			print(f'{indent}{token.begin.line_number+1:04d} {token}')
 			if token.type.debug_indent_incr():
 				depth += 1
 			if token.type is tkv2.TKType.MACRO:
@@ -58,6 +58,16 @@ def mm2 ():
 				fuckfuckfuck(meta.tokens)
 				depth -= 1
 				print(f'{indent}====  END MACRO  ====')
+			if token.type is tkv2.TKType.LITERAL:
+				data = token.literal_get()
+				if isinstance(data, tkv2.FStringData):
+					print(f'{indent}==== BEGIN FSTRING {repr(data.fixed_up_str)} ====')
+					for sect in data.section_contents:
+						depth += 1
+						fuckfuckfuck(sect)
+						depth -= 1
+					print(f'{indent}====  END FSTRING  ====')
+
 
 	fuckfuckfuck(tokens)
 

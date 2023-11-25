@@ -182,15 +182,22 @@ class MacroData:
 		return self.configuration is not None
 
 @dataclass
-class FStringData:
-	lexeme:    str = ''
-	fixed_str: str = ''
-	sections: list[slice] = field(default_factory=list)
-	section_contents: list[list] = field(default_factory=list)
-
-@dataclass
 class LiteralData:
 	literal_type: LiteralType
+
+@dataclass
+class FStringData(LiteralData):
+	class Section:
+		def __init__ (self, sect_begin:int, sect_end:int,fstr_begin:int):
+			self.absolute=slice(sect_begin,sect_end)
+			self.relative=slice(sect_begin-fstr_begin,sect_end-fstr_begin)
+	lexeme:       str = ''
+	fixed_up_str: str = ''
+	sections: list[Section] = field(default_factory=list)
+	section_contents: list[list['Token']] = field(default_factory=list)
+	@classmethod
+	def create (cls):
+		return cls(LiteralType.FSTRING)
 
 @dataclass
 class NumberLiteralData(LiteralData):
@@ -271,7 +278,7 @@ def digest_string (s: str):
 			continue
 		ch = chyme[i+1]
 		match ch:
-			case '\\' | '"':
+			case '\\' | '"' | "'":
 				del chyme[i] # the character escaped is the same as the esc seq
 			case _ if ch in simple_seqs:
 				chyme[i:i+2] = simple_seqs[ch]
@@ -361,6 +368,11 @@ class Token:
 			raise AttributeError('Tried to get macro metadata for a non-macro token!')
 		return self.metadata[0]
 
+	def literal_get (self) -> LiteralData:
+		if self.type is not TKType.LITERAL:
+			raise AttributeError('Tried to get literal data for a non-literal token!')
+		return self.metadata[0]
+
 class TokenizeError(Exception): pass
 
 class Tokenizer:
@@ -384,6 +396,7 @@ class Tokenizer:
 		self.gender = gender
 		self.tokens: list[Token] = []
 		self.token_stack: list[list[Token]] = []
+		self.limit = len(self.f)
 
 	def token_stack_push (self, clear=True):
 		self.token_stack.append(old:=self.tokens)
@@ -418,6 +431,16 @@ class Tokenizer:
 	def char_index (self):
 		""":return: The current character index in the current line"""
 		return self.f.tell() - self._line_index
+
+	def _begin_sub_tokenize (self, new_gender=Gender.NONE):
+		pev = (self.gender, self.begin)
+		self.gender = new_gender
+		self.token_stack_push()
+		return pev
+
+	def _end_sub_tokenize (self, pev):
+		self.token_stack_pop()
+		self.gender, self.begin = pev
 
 	def handle_multiline_comment (self):
 		"""Assumes the beginning /* has been skipped"""
@@ -456,6 +479,8 @@ class Tokenizer:
 		# and report back an error that the string is unclosed,
 		# as well as counting new lines
 		f = self.f
+		if f.vore(matching_kind):
+			return ''
 		begin = f.tell()
 		while True:
 			ch = f.read()
@@ -471,11 +496,15 @@ class Tokenizer:
 	def handle_string_literal (self, matching='"'):
 		"""Assumes beginning " was vored"""
 		f = self.f
+		if f.vore(matching):
+			return ''
+
 		begin = f.tell()
 		while True:
 			ch = f.read()
 			if ch == matching:
-				if f.peek(-1) == '\\':
+				# -2. -1 will just give back the '"' we just read
+				if f.peek(-2) == '\\':
 					continue
 				break
 			elif ch == '\n':
@@ -522,14 +551,45 @@ class Tokenizer:
 			outm.name, outm.configuration = id1, None
 
 		mdatbegin = f.tell()
-		pev = (self.gender, self.begin)
-		self.gender = self.Gender.MACRO
-		self.token_stack_push()
+		pev = self._begin_sub_tokenize(self.Gender.MACRO)
 		outm.tokens = self.tokenize()
-		self.token_stack_pop()
-		self.gender, self.begin = pev
+		self._end_sub_tokenize(pev)
 		outm.lexeme = f.text[mdatbegin:f.tell()]
 		return outm
+
+	def handle_fstring (self, matching='"'):
+		f = self.f
+		begin = f.tell()
+		outs = FStringData.create()
+		while True:
+			ch = f.read()
+			if ch == matching:
+				# -2 instead of -1, latter just gets the " we just read
+				if f.peek(-2) == '\\':
+					continue
+				break
+			elif ch == '\n':
+				raise TokenizeError('Newline in string template literal')
+			elif ch == '':
+				raise TokenizeError('Unclosed string literal')
+			elif ch == '{':
+				split_begin = f.tell()
+				pev = self._begin_sub_tokenize(self.Gender.FSTRING)
+				tokens = self.tokenize()
+				self._end_sub_tokenize(pev)
+				outs.sections.append(FStringData.Section(split_begin, f.tell()-1, begin)) # exclude ending }
+				outs.section_contents.append(tokens)
+		# trailing " already skiped due to the way the loop works
+		# also, need to digest string before.. digesting it again.
+		# like a cow, i guess. not very efficient though v_v
+		outs.lexeme = f.text[begin:f.tell()-1]
+		outb = list(outs.lexeme)
+		i = len(outs.sections) - 1
+		for sect in reversed(outs.sections):
+			outb[sect.relative] = str(i)
+			i -= 1
+		outs.fixed_up_str = digest_string(''.join(outb))
+		return outs
 
 	def new_line (self):
 		"""
@@ -565,7 +625,8 @@ class Tokenizer:
 		f = self.f
 		add = self.add
 		depth = 0
-		while f.has_remaining:
+		is_fstring = self.gender is self.Gender.FSTRING
+		while f.has_remaining and f.tell() < self.limit:
 			f.skip_while(gml_kinda_ws)
 			self.begin = self.position_info
 			ch = f.read()
@@ -583,13 +644,16 @@ class Tokenizer:
 					else:
 						raise TokenizeError('Unexpected whack (\\) in stream!')
 				case '"':
+					if is_fstring and depth == 0:
+						raise TokenizeError('Unclosed string template section')
 					add(TKType.LITERAL, StringLiteralData.create(self.handle_string_literal()))
 				case '@' if f.vore('"'):
 					add(TKType.LITERAL, StringLiteralData.create(self.handle_multiline_string_literal()))
 				case '@' if f.vore("'"):
 					add(TKType.LITERAL, StringLiteralData.create(self.handle_multiline_string_literal("'")))
 				case '$' if f.vore('"'):
-					raise NotImplementedError('String template')
+					add(TKType.LITERAL, self.handle_fstring())
+					# raise NotImplementedError('String template')
 				case '$' if f.peek_is(char_is_hex_number):
 					add(TKType.LITERAL, NumberLiteralData.create_hex(self.handle_hexadecimal_literal()))
 				case '0' if f.vore('xX'):
@@ -631,8 +695,16 @@ class Tokenizer:
 						add(*self.handle_number_literal())
 					else:
 						add(TKType.DOT)
-				case '{': add(TKType.LCURLY, DualTokenType.SYMBOL)
-				case '}': add(TKType.RCURLY, DualTokenType.SYMBOL)
+				case '{':
+					if is_fstring:
+						depth += 1
+					add(TKType.LCURLY, DualTokenType.SYMBOL)
+				case '}':
+					if is_fstring:
+						if depth == 0:
+							break
+						depth -= 1
+					add(TKType.RCURLY, DualTokenType.SYMBOL)
 				case '(': add(TKType.LWHIFFLE)
 				case ')': add(TKType.RWHIFFLE)
 				case '[':
@@ -742,8 +814,12 @@ class Tokenizer:
 					add(*self.handle_number_literal())
 				case _:
 					...
+		if is_fstring and depth != 0:
+			raise TokenizeError('Unclosed string template section')
 		return self.tokens
 
 	def act (self):
-		return self.tokenize()
+		self.tokenize()
+		self.add(TKType.EOF)
+		return self.tokens
 
