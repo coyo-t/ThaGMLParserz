@@ -1,3 +1,4 @@
+from __future__ import annotations
 import string
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -175,8 +176,15 @@ class TKType(Enum):
 class MacroData:
 	name: str = ''
 	configuration: str|None = None
-	tokens: list = field(default_factory=list)
+	tokens: list[Token] = field(default_factory=list)
 	lexeme: str = ''
+	name_begin: PositionInfo = None
+	name_end:   PositionInfo = None
+
+	@property
+	def keyword_length (self):
+		return len('#macro ')
+
 	@property
 	def has_config (self):
 		return self.configuration is not None
@@ -544,11 +552,13 @@ class Tokenizer:
 		# This is stupid! I dont know why its like this -_-
 		# But its on purpose, i know that
 		outm = MacroData()
+		outm.name_begin = self.position_info
 		id1 = vore_name()
 		if f.vore(':'):
 			outm.name, outm.configuration = vore_name(), id1
 		else:
 			outm.name, outm.configuration = id1, None
+		outm.name_end = self.position_info
 
 		mdatbegin = f.tell()
 		pev = self._begin_sub_tokenize(self.Gender.MACRO)
@@ -626,17 +636,18 @@ class Tokenizer:
 		add = self.add
 		depth = 0
 		is_fstring = self.gender is self.Gender.FSTRING
+		is_macro = self.gender is self.Gender.MACRO
 		while f.has_remaining and f.tell() < self.limit:
 			f.skip_while(gml_kinda_ws)
 			self.begin = self.position_info
 			ch = f.read()
 			match ch:
 				case '\n':
-					if self.gender is self.Gender.MACRO:
+					if is_macro:
 						break
 					self.newline_quick(TKType.NEWLINE)
 				case '\\':
-					if self.gender is self.Gender.MACRO:
+					if is_macro:
 						if f.vore('\n'):
 							self.newline_quick(TKType.NEWLINE)
 						else:
@@ -668,7 +679,7 @@ class Tokenizer:
 					elif name == 'endregion':
 						self.region_quick(TKType.ENDREGION)
 					elif name == 'macro':
-						if self.gender is self.Gender.MACRO:
+						if is_macro:
 							raise TokenizeError('Cant create a macro inside a macro!')
 						f.skip_while(gml_kinda_ws)
 						if f.peek_is('\n'):
@@ -797,7 +808,7 @@ class Tokenizer:
 						f.skip_until('\n', True)
 						# dont include newline in comment body
 						self.newline_quick(TKType.COMMENT, CommentData.create(f.text[com_begin:f.tell() - 1]))
-						if self.gender is self.Gender.MACRO: break
+						if is_macro: break
 					elif f.vore('*'):
 						# Multi-line comment
 						com_begin = f.tell()
