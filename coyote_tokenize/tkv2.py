@@ -564,7 +564,7 @@ class Tokenizer:
 		while True:
 			ch = f.read()
 			if ch == matching:
-				# -2 instead of -1, latter just gets the " we just read
+				# -2 instead of -1, the latter just gets the " we just read
 				if f.peek(-2) == '\\':
 					continue
 				break
